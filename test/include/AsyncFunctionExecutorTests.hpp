@@ -1,0 +1,84 @@
+#pragma once
+
+#include <bringauto/async_function_execution/AsyncFunctionExecutor.hpp>
+#include <MockClient.hpp>
+
+#include <gtest/gtest.h>
+
+
+
+namespace baafe = bringauto::async_function_execution;
+
+struct SerializableString final {
+	std::string value {};
+	SerializableString() = default;
+	SerializableString(std::string str) : value(std::move(str)) {}
+
+	std::span<const uint8_t> serialize() const {
+		return std::span {reinterpret_cast<const uint8_t *>(value.data()), value.size()};
+	}
+	void deserialize(std::span<const uint8_t> bytes) {
+		value = std::string {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+	}
+};
+
+baafe::FunctionDefinition FunctionAdd {
+	baafe::FunctionId { 1 },
+	baafe::Return { int {} },
+	baafe::Arguments { int {}, int {}, int {} }
+};
+
+baafe::FunctionDefinition FunctionMultiply {
+	baafe::FunctionId { 2 },
+	baafe::Return { int {} },
+	baafe::Arguments { int {}, int {}, int {} }
+};
+
+baafe::FunctionDefinition FunctionReturnSame {
+	baafe::FunctionId { 3 },
+	baafe::Return { int {} },
+	baafe::Arguments { int {} }
+};
+
+baafe::FunctionDefinition FunctionReturnSameString {
+	baafe::FunctionId { 4 },
+	baafe::Return { SerializableString {} },
+	baafe::Arguments { SerializableString {} }
+};
+
+baafe::AsyncFunctionExecutor executorProducer {
+	baafe::Config {
+		.isProducer = true,
+		.defaultTimeout = std::chrono::seconds(1)
+	},
+	baafe::FunctionList { std::tuple{
+		FunctionAdd,
+		FunctionMultiply,
+		FunctionReturnSame
+	} },
+	std::make_unique<MockClient>()
+};
+
+baafe::AsyncFunctionExecutor executorConsumer {
+	baafe::Config {
+		.isProducer = false
+	},
+	baafe::FunctionList { std::tuple{
+		FunctionAdd,
+		FunctionMultiply,
+		FunctionReturnSame
+	} },
+	std::make_unique<MockClient>()
+};
+
+
+class AsyncFunctionExecutorTests : public ::testing::Test {
+protected:
+	static void SetUpTestSuite() {
+		executorProducer.connect();
+		executorConsumer.connect();
+	}
+
+	void SetUp() override {}
+	void TearDown() override {}
+};

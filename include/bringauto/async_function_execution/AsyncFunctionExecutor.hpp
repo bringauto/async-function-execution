@@ -1,0 +1,344 @@
+#pragma once
+
+#include <bringauto/async_function_execution/clients/AeronClient.hpp>
+#include <bringauto/async_function_execution/TimeoutIdleStrategy.hpp>
+
+#include <utility>
+#include <stdexcept>
+#include <iostream>
+
+
+
+namespace bringauto::async_function_execution {
+
+/**
+ * @brief Configuration structure for the AsyncFunctionExecutor.
+ * Contains settings for producer/consumer mode and default timeout.
+ */
+struct Config {
+	bool isProducer = true;
+	std::chrono::nanoseconds defaultTimeout = std::chrono::nanoseconds(0);
+	// TODO per function config map (for now only config will be timeout)
+};
+
+
+/**
+ * @brief Unique identifier for a function in the AsyncFunctionExecutor.
+ * Supported range is 0-255
+ */
+struct FunctionId {
+	uint8_t value;
+};
+
+
+/**
+ * @brief Concept to check if a type has methods serialize() and deserialize().
+ */
+template <typename T>
+concept HasSerialize = requires(const T& t) {
+	{ t.serialize() } -> std::convertible_to<std::span<const uint8_t>>;
+};
+
+
+/**
+ * @brief Structure representing the return type of function.
+ */
+template<typename T>
+struct Return {
+	T value;
+	constexpr Return(T &&val) : value(std::forward<T>(val)) {}
+};
+
+
+/**
+ * @brief Specialization of Return for void type.
+ */
+template<>
+struct Return<void> {
+	constexpr Return() noexcept {}
+};
+
+
+/**
+ * @brief Structure representing the argument types of a function.
+ */
+template<typename... Args>
+struct Arguments {
+	std::tuple<Args...> values;
+	constexpr Arguments(Args &&...args) : values{std::forward<Args>(args)...} {}
+};
+
+
+/**
+ * @brief Definition of a function that can be called or responded to via AsyncFunctionExecutor.
+ */
+template<typename Ret, typename... Args>
+struct FunctionDefinition {
+	FunctionId id;
+	Return<Ret> returnType;
+	Arguments<Args...> argumentTypes;
+};
+
+
+/**
+ * @brief Helper structure to hold a list of function definitions.
+ */
+template<typename... Funcs>
+struct FunctionList {
+	std::tuple<Funcs...> functions;
+	FunctionList(Funcs&&... funcs) : functions(std::forward<Funcs>(funcs)...) {}
+};
+
+
+/**
+ * @brief This class provides a high-level interface for async communication, allowing function calls over shared memory
+ * with serialization and deserialization.
+ */
+template<typename... Funcs>
+class AsyncFunctionExecutor {
+public:
+	/**
+	 * @brief Constructs an AsyncFunctionExecutor instance. The connect() method must be called before usage.
+	 * 
+	 * @param config Configuration for the async function executor.
+	 * @param functions A list of function definitions that the client can call or respond to.
+	 */
+	AsyncFunctionExecutor(Config config,
+						  const FunctionList<Funcs...> &functions,
+						  std::unique_ptr<clients::ClientInterface> client = nullptr)
+			: client_(nullptr), config_(config), functions_(functions) {
+		// Default client if none is provided
+		if (client) {
+			client_ = std::move(client);
+		} else {
+			client_ = std::make_unique<clients::AeronClient<TimeoutIdleStrategy>>(
+				"aeron:ipc", TimeoutIdleStrategy(config.defaultTimeout)
+			);
+		}
+	};
+
+	~AsyncFunctionExecutor() = default;
+
+
+	/**
+	 * @brief Connects the client to the media driver and sets up communication channels.
+	 * Needs to be called before any function calls or polling.
+	 */
+	void connect() {
+		std::vector<uint32_t> toProducer;
+		std::vector<uint32_t> fromProducer;
+
+		std::apply([&](auto&&... funcDefs) {
+			(toProducer.push_back(funcDefs.id.value + 1000), ...);
+			(fromProducer.push_back(funcDefs.id.value), ...);
+		}, std::get<0>(functions_.functions));
+
+		if (config_.isProducer) {
+			client_->connect(toProducer, fromProducer);
+		} else {
+			client_->connect(fromProducer, toProducer);
+		}
+	}
+
+
+	/**
+	 * @brief Calls a function defined in the FunctionList, sending arguments and waiting for a response.
+	 * Can only be used in producer mode.
+	 * 
+	 * @param function The function definition of which function to call.
+	 * @param args The arguments to pass to the function.
+	 * @return The return value of the function. If the return type contains some byte buffer,
+	 * the memory is valid until the next call to callFunc().
+	 */
+	template <typename Ret, typename... FArgs, typename... CallArgs>
+	Ret callFunc(const FunctionDefinition<Ret, FArgs...> &function, CallArgs&&... args) {
+		if (!config_.isProducer) {
+			throw std::runtime_error("Cannot call function in consumer mode");
+		}
+		if (sizeof...(CallArgs) < sizeof...(FArgs)) {
+			throw std::invalid_argument("Argument count mismatch");
+		}
+
+		auto messageBytes = serializeArgs(function.id, args...);
+		client_->sendMessage(function.id.value, messageBytes);
+
+		auto responseBytes = client_->waitForMessage(function.id.value + 1000);
+		if (responseBytes.empty()) {
+			throw std::runtime_error("No response received or timeout");
+		}
+		
+		Ret response = deserializeReturn<Ret>(function.id, responseBytes);
+
+		if constexpr (std::is_same_v<Ret, void>) {
+			return;
+		} else {
+			return response;
+		}
+	}
+
+
+	/**
+	 * @brief Polls for incoming function calls and returns the function ID and arguments represented as bytes.
+	 * These bytes can then be deserialized using getFunctionArgs(). Can only be used in consumer mode.
+	 * 
+	 * @return A tuple containing the FunctionId and a span of argument bytes. Returns an empty tuple on error.
+	 */
+	std::tuple<FunctionId, std::span<const uint8_t>> pollFunction() {
+		if (config_.isProducer) {
+			std::cerr << "Cannot start polling in producer mode." << std::endl;
+			return {}; // Error: Cannot start polling in producer mode
+		}
+
+		auto requestBytes = client_->waitForAnyMessage();
+		if (requestBytes.empty()) {
+			return {}; // Error: No message received or timeout
+		}
+
+		auto [funcId, argBytes] = deserializeRequest(requestBytes);
+		return std::make_tuple(funcId, argBytes);
+	}
+
+
+	/**
+	 * @brief Deserializes function arguments from a byte span into a tuple of argument values.
+	 * Can only be used in consumer mode.
+	 * 
+	 * @param function The function definition corresponding to the arguments.
+	 * @param argBytes The byte span containing the serialized arguments.
+	 * @return A tuple containing the deserialized argument values.
+	 */
+	template<typename Ret, typename... Args>
+	auto getFunctionArgs(const FunctionDefinition<Ret, Args...> &function, const std::span<const uint8_t> &argBytes) {
+		if (config_.isProducer) {
+			throw std::runtime_error("Cannot get function arguments in producer mode");
+		}
+
+		if (argBytes.size() < 1) {
+			throw std::invalid_argument("Not enough data to read argument count");
+		}
+
+		size_t pos = 0;
+		uint8_t argCount = argBytes[pos++];
+
+		if (argCount != sizeof...(Args)) {
+			throw std::invalid_argument("Argument count mismatch");
+		}
+
+		std::tuple<Args...> args;
+		auto extractArg = [&](auto &arg) {
+			if (pos >= argBytes.size()) throw std::invalid_argument("Unexpected end of data while reading argument size");
+			uint8_t len = argBytes[pos++];
+			if (pos + len > argBytes.size()) throw std::invalid_argument("Unexpected end of data while reading argument content");
+			
+			if constexpr (HasSerialize<decltype(arg)>) {
+				arg.deserialize(std::span {argBytes.data() + pos, len});
+			} else {
+				std::memcpy(&arg, argBytes.data() + pos, len);
+			}
+
+			pos += len;
+		};
+
+		std::apply([&](auto &... tupleArgs) {
+			(extractArg(tupleArgs), ...);
+		}, args);
+
+		return args;
+	}
+
+
+	/**
+	 * @brief Sends a return message for a previously polled function call.
+	 * Can only be used in consumer mode.
+	 * 
+	 * @param functionId The FunctionId of the function call to respond to.
+	 * @param returnValue The return value to send back.
+	 * @return 0 on success, or a negative error code on failure.
+	 */
+	template<typename T>
+	int sendReturnMessage(const FunctionId &functionId, const T &returnValue) {
+		if (config_.isProducer) {
+			std::cerr << "Cannot send return message in producer mode." << std::endl;
+			return -1; // Error: Cannot send return message in producer mode
+		}
+
+		auto messageBytes = serializeReturn(functionId, returnValue);
+		return client_->sendMessage(functionId.value + 1000, messageBytes);
+	}
+
+private:
+	template<typename... Args>
+	std::span<const uint8_t> serializeArgs(const FunctionId &funcId, const Args&... args) {
+		serializationBuffer_.clear();
+		std::size_t totalSize = 2; // Function ID + Argument count
+		((totalSize += 1 + sizeof(args)), ...); // Each argument: size byte + data
+		serializationBuffer_.reserve(totalSize);
+		serializationBuffer_.push_back(funcId.value);
+		serializationBuffer_.push_back(static_cast<uint8_t>(sizeof...(Args)));
+		(appendArg(serializationBuffer_, args), ...);
+		return {serializationBuffer_.data(), serializationBuffer_.size()};
+	}
+
+
+	template<typename T>
+	std::span<const uint8_t> serializeReturn(const FunctionId &funcId, const T &returnValue) {
+		serializationBuffer_.clear();
+		std::size_t totalSize = 2 + sizeof(returnValue);
+		serializationBuffer_.reserve(totalSize);
+		serializationBuffer_.push_back(funcId.value);
+		appendArg(serializationBuffer_, returnValue);
+		return {serializationBuffer_.data(), serializationBuffer_.size()};
+	}
+
+
+	template<typename T>
+	void appendArg(std::vector<uint8_t>& buffer, const T& arg) {
+		if constexpr (HasSerialize<T>) {
+			auto bytes = arg.serialize();
+			if (bytes.size() > 255) {
+				throw std::invalid_argument("Serialized data too large");
+			}
+			buffer.push_back(static_cast<uint8_t>(bytes.size()));
+			buffer.insert(buffer.end(), bytes.begin(), bytes.end());
+		} else {
+			static_assert(std::is_trivially_copyable_v<T>, "Argument type must be trivially copyable");
+			buffer.push_back(static_cast<uint8_t>(sizeof(arg)));
+			buffer.insert(buffer.end(), reinterpret_cast<const uint8_t*>(&arg), reinterpret_cast<const uint8_t*>(&arg) + sizeof(T));
+		}
+	}
+
+
+	template<typename T>
+	T deserializeReturn(const FunctionId &funcId, const std::span<const uint8_t>& bytes) {
+		if(funcId.value != bytes[0]) {
+			throw std::invalid_argument("Function ID mismatch in return value");
+		}
+		
+		T value;
+		if constexpr (HasSerialize<T>) {
+			value.deserialize(std::span {bytes.data() + 2, bytes.size() - 2});
+		} else {
+			std::memcpy(&value, bytes.data() + 2, sizeof(T));
+		}
+		return value;
+	}
+
+
+	std::tuple<FunctionId, std::span<const uint8_t>> deserializeRequest(const std::span<const uint8_t>& bytes) {
+		if (bytes.size() < 1) {
+			throw std::invalid_argument("Not enough data to deserialize request");
+		}
+		FunctionId funcId{ bytes[0] };
+		std::span<const uint8_t> args(bytes.begin() + 1, bytes.end());
+		return std::make_tuple(funcId, args);
+	}
+
+
+	/// Buffer used for serialization of messages.
+	mutable std::vector<uint8_t> serializationBuffer_;
+	std::unique_ptr<clients::ClientInterface> client_;
+	Config config_;
+	FunctionList<Funcs...> functions_;
+};
+
+}

@@ -1,0 +1,162 @@
+#pragma once
+
+#include <bringauto/async_function_execution/clients/ClientInterface.hpp>
+
+#include <gtest/gtest.h>
+
+#include <cstring>
+#include <iostream>
+
+
+
+class MockClient : public bringauto::async_function_execution::clients::ClientInterface {
+public:
+	MockClient() = default;
+	~MockClient() = default;
+
+	int connect(const std::vector<uint32_t>& subscriptionIds, const std::vector<uint32_t>& publicationIds) override {
+		(void)subscriptionIds; (void)publicationIds;
+		return 0;
+	}
+
+	int sendMessage(const uint32_t channelId, std::span<const uint8_t> &messageBytes) override {
+		if (channelId > 1000) {
+			// Validate that this is a return message
+			if (messageBytes.size() != 2 + sizeof(int)) {
+				std::cerr << "Invalid return message size: " << messageBytes.size() << std::endl;
+				return -1; // Error: Invalid return message size
+			}
+
+			if (messageBytes[0] != static_cast<uint8_t>(channelId - 1000) || messageBytes[1] != sizeof(int)) {
+				std::cerr << "Invalid return message format." << std::endl;
+				return -2; // Error: Invalid return message format
+			}
+
+			int returnValue;
+			std::memcpy(&returnValue, messageBytes.data() + 2, sizeof(int));
+			
+			if (returnValue != 42) {
+				std::cerr << "Invalid return value: " << returnValue << std::endl;
+				return -3; // Error: Invalid return value
+			}
+			return 0;
+		}
+
+		uint8_t funcId = messageBytes[0];
+
+		if (funcId == 4) { // FunctionReturnSameString
+			auto stringArgs = deserializeStringRequest(messageBytes);
+			if (stringArgs.size() == 1) {
+				serializeStringResponse(funcId, stringArgs[0]);
+			}
+			return 0;
+		}
+
+		auto args = deserializeIntRequest(messageBytes);
+		switch (funcId) {
+			case 1: // FunctionAdd
+				if (args.size() == 3) {
+					int sum = args[0] + args[1] + args[2];
+					serializeIntResponse(funcId, sum);
+				}
+				break;
+			case 2: // FunctionMultiply
+				if (args.size() == 3) {
+					int product = args[0] * args[1] * args[2];
+					serializeIntResponse(funcId, product);
+				}
+				break;
+			case 3: // FunctionReturnSame
+				if (args.size() == 1) {
+					serializeIntResponse(funcId, args[0]);
+				}
+				break;
+			default:
+				break;
+		}
+		return 0;
+	};
+
+	std::span<const uint8_t> waitForMessage(const uint32_t channelId) override {
+		(void)channelId;
+		if (messageBuffer_.empty()) {
+			return {};
+		}
+		return std::span<const uint8_t>(messageBuffer_.data(), messageBuffer_.size());
+	}
+
+	/// Will always return a message for FunctionAdd with arguments (10, 20, 30)
+	std::span<const uint8_t> waitForAnyMessage() override {
+		messageBuffer_.clear();
+		messageBuffer_.reserve(2 + 3 * (1 + sizeof(int))); // Function ID + Arg count + 3 args (size + data)
+		messageBuffer_.push_back(static_cast<uint8_t>(1)); // Function ID
+		messageBuffer_.push_back(static_cast<uint8_t>(3)); // Argument count
+		int arg1 = 10;
+		int arg2 = 20;
+		int arg3 = 30;
+		messageBuffer_.push_back(static_cast<uint8_t>(sizeof(int)));
+		messageBuffer_.insert(messageBuffer_.end(), reinterpret_cast<uint8_t*>(&arg1), reinterpret_cast<uint8_t*>(&arg1) + sizeof(int));
+		messageBuffer_.push_back(static_cast<uint8_t>(sizeof(int)));
+		messageBuffer_.insert(messageBuffer_.end(), reinterpret_cast<uint8_t*>(&arg2), reinterpret_cast<uint8_t*>(&arg2) + sizeof(int));
+		messageBuffer_.push_back(static_cast<uint8_t>(sizeof(int)));
+		messageBuffer_.insert(messageBuffer_.end(), reinterpret_cast<uint8_t*>(&arg3), reinterpret_cast<uint8_t*>(&arg3) + sizeof(int));
+		return {messageBuffer_.data(), messageBuffer_.size()};
+	}
+
+private:
+	/// Deserializes a request message into function ID and argument values the same way that AsyncFunctionExecutor does.
+	std::vector<int> deserializeIntRequest(std::span<const uint8_t> &bytes) {
+		size_t pos = 1;
+		uint8_t argCount = bytes[pos++];
+		std::vector<int> args;
+
+		for (uint8_t i = 0; i < argCount; ++i) {
+			uint8_t argSize = bytes[pos++];
+			int argValue;
+			std::memcpy(&argValue, bytes.data() + pos, sizeof(int));
+			args.push_back(argValue);
+			pos += argSize;
+		}
+		return args;
+	}
+
+	/// Deserializes a request message with string arguments.
+	std::vector<std::string> deserializeStringRequest(std::span<const uint8_t> &bytes) {
+		size_t pos = 1;
+		uint8_t argCount = bytes[pos++];
+		std::vector<std::string> args;
+
+		for (uint8_t i = 0; i < argCount; ++i) {
+			uint8_t argSize = bytes[pos++];
+			std::string argValue(reinterpret_cast<const char*>(bytes.data() + pos), argSize);
+			args.push_back(argValue);
+			pos += argSize;
+		}
+		return args;
+	}
+
+	/// Serializes a response message the same way that AsyncFunctionExecutor does.
+	void serializeIntResponse(uint8_t funcId, int returnValue) {
+		std::vector<uint8_t> buffer;
+		buffer.push_back(funcId);
+		buffer.push_back(static_cast<uint8_t>(sizeof(int)));
+		buffer.resize(2 + sizeof(int));
+		std::memcpy(buffer.data() + 2, &returnValue, sizeof(int));
+		messageBuffer_ = buffer;
+	}
+
+	/// Serializes a response message with a string return value.
+	void serializeStringResponse(uint8_t funcId, const std::string &data) {
+		std::vector<uint8_t> buffer;
+		buffer.push_back(funcId);
+		if (data.size() > 255) {
+			throw std::invalid_argument("Data too large to serialize in MockClient");
+		}
+		buffer.push_back(static_cast<uint8_t>(data.size()));
+		buffer.insert(buffer.end(), data.begin(), data.end());
+		messageBuffer_ = buffer;
+	}
+
+
+	std::vector<uint8_t> messageBuffer_;
+};
