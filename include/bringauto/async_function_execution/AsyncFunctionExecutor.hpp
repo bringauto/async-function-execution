@@ -112,7 +112,7 @@ public:
 			client_ = std::move(client);
 		} else {
 			client_ = std::make_unique<clients::AeronClient<TimeoutIdleStrategy>>(
-				"aeron:ipc", TimeoutIdleStrategy(config.defaultTimeout)
+				DEFAULT_AERON_CONNECTION, TimeoutIdleStrategy(config.defaultTimeout)
 			);
 		}
 	};
@@ -129,7 +129,7 @@ public:
 		std::vector<uint32_t> fromProducer;
 
 		std::apply([&](auto&&... funcDefs) {
-			(toProducer.push_back(funcDefs.id.value + 1000), ...);
+			(toProducer.push_back(funcDefs.id.value + MESSAGE_RETURN_CHANNEL_OFFSET), ...);
 			(fromProducer.push_back(funcDefs.id.value), ...);
 		}, std::get<0>(functions_.functions));
 
@@ -158,11 +158,14 @@ public:
 		if (sizeof...(CallArgs) < sizeof...(FArgs)) {
 			throw std::invalid_argument("Argument count mismatch");
 		}
+		if (!isFunctionDefined(function.id)) {
+			throw std::runtime_error("Function ID not defined");
+		}
 
 		auto messageBytes = serializeArgs(function.id, args...);
 		client_->sendMessage(function.id.value, messageBytes);
 
-		auto responseBytes = client_->waitForMessage(function.id.value + 1000);
+		auto responseBytes = client_->waitForMessage(function.id.value + MESSAGE_RETURN_CHANNEL_OFFSET);
 		if (responseBytes.empty()) {
 			throw std::runtime_error("No response received or timeout");
 		}
@@ -213,6 +216,10 @@ public:
 			throw std::runtime_error("Cannot get function arguments in producer mode");
 		}
 
+		if (!isFunctionDefined(function.id)) {
+			throw std::runtime_error("Function ID not defined");
+		}
+
 		if (argBytes.size() < 1) {
 			throw std::invalid_argument("Not enough data to read argument count");
 		}
@@ -227,7 +234,8 @@ public:
 		std::tuple<Args...> args;
 		auto extractArg = [&](auto &arg) {
 			if (pos >= argBytes.size()) throw std::invalid_argument("Unexpected end of data while reading argument size");
-			uint8_t len = argBytes[pos++];
+			uint16_t len = argBytes[pos] | (static_cast<uint16_t>(argBytes[pos + 1]) << 8);
+			pos += 2;
 			if (pos + len > argBytes.size()) throw std::invalid_argument("Unexpected end of data while reading argument content");
 			
 			if constexpr (HasSerialize<decltype(arg)>) {
@@ -257,21 +265,34 @@ public:
 	 */
 	template<typename T>
 	int sendReturnMessage(const FunctionId &functionId, const T &returnValue) {
+		if (!isFunctionDefined(functionId)) {
+			std::cerr << "Function ID not defined." << std::endl;
+			return -1; // Error: Function ID not defined
+		}
+
 		if (config_.isProducer) {
 			std::cerr << "Cannot send return message in producer mode." << std::endl;
 			return -1; // Error: Cannot send return message in producer mode
 		}
 
 		auto messageBytes = serializeReturn(functionId, returnValue);
-		return client_->sendMessage(functionId.value + 1000, messageBytes);
+		return client_->sendMessage(functionId.value + MESSAGE_RETURN_CHANNEL_OFFSET, messageBytes);
 	}
 
 private:
+	bool isFunctionDefined(const FunctionId &funcId) {
+		bool found = false;
+		std::apply([&](auto&&... funcDefs) {
+			((funcDefs.id.value == funcId.value ? found = true : false), ...);
+		}, std::get<0>(functions_.functions));
+		return found;
+	}
+
 	template<typename... Args>
 	std::span<const uint8_t> serializeArgs(const FunctionId &funcId, const Args&... args) {
 		serializationBuffer_.clear();
 		std::size_t totalSize = 2; // Function ID + Argument count
-		((totalSize += 1 + sizeof(args)), ...); // Each argument: size byte + data
+		((totalSize += 2 + sizeof(args)), ...); // Each argument: size byte + data
 		serializationBuffer_.reserve(totalSize);
 		serializationBuffer_.push_back(funcId.value);
 		serializationBuffer_.push_back(static_cast<uint8_t>(sizeof...(Args)));
@@ -283,7 +304,7 @@ private:
 	template<typename T>
 	std::span<const uint8_t> serializeReturn(const FunctionId &funcId, const T &returnValue) {
 		serializationBuffer_.clear();
-		std::size_t totalSize = 2 + sizeof(returnValue);
+		std::size_t totalSize = 3 + sizeof(returnValue);
 		serializationBuffer_.reserve(totalSize);
 		serializationBuffer_.push_back(funcId.value);
 		appendArg(serializationBuffer_, returnValue);
@@ -295,14 +316,18 @@ private:
 	void appendArg(std::vector<uint8_t>& buffer, const T& arg) {
 		if constexpr (HasSerialize<T>) {
 			auto bytes = arg.serialize();
-			if (bytes.size() > 255) {
+			if (bytes.size() > MAX_ARGUMENT_SIZE) {
 				throw std::invalid_argument("Serialized data too large");
 			}
-			buffer.push_back(static_cast<uint8_t>(bytes.size()));
+			uint16_t size = static_cast<uint16_t>(bytes.size());
+			buffer.push_back(static_cast<uint8_t>(size & 0xFF));
+			buffer.push_back(static_cast<uint8_t>((size >> 8) & 0xFF));
 			buffer.insert(buffer.end(), bytes.begin(), bytes.end());
 		} else {
 			static_assert(std::is_trivially_copyable_v<T>, "Argument type must be trivially copyable");
-			buffer.push_back(static_cast<uint8_t>(sizeof(arg)));
+			uint16_t size = static_cast<uint16_t>(sizeof(arg));
+			buffer.push_back(static_cast<uint8_t>(size & 0xFF));
+			buffer.push_back(static_cast<uint8_t>((size >> 8) & 0xFF));
 			buffer.insert(buffer.end(), reinterpret_cast<const uint8_t*>(&arg), reinterpret_cast<const uint8_t*>(&arg) + sizeof(T));
 		}
 	}
@@ -316,9 +341,9 @@ private:
 		
 		T value;
 		if constexpr (HasSerialize<T>) {
-			value.deserialize(std::span {bytes.data() + 2, bytes.size() - 2});
+			value.deserialize(std::span {bytes.data() + 3, bytes.size() - 3});
 		} else {
-			std::memcpy(&value, bytes.data() + 2, sizeof(T));
+			std::memcpy(&value, bytes.data() + 3, sizeof(T));
 		}
 		return value;
 	}

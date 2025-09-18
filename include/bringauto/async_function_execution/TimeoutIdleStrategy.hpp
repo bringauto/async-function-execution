@@ -22,17 +22,15 @@ class TimeoutIdleStrategy {
 public:
 	explicit TimeoutIdleStrategy(
 		std::chrono::nanoseconds timeoutNs = std::chrono::nanoseconds(0),
-		std::int64_t maxSpins = 10,
-		std::int64_t maxYields = 20,
-		std::chrono::duration<long, std::nano> minParkPeriodNs = std::chrono::duration<long, std::nano>(1000),
-		std::chrono::duration<long, std::nano> maxParkPeriodNs = std::chrono::duration<long, std::milli>(1)
+		std::chrono::nanoseconds maxSpinPeriodNs = std::chrono::duration<long, std::milli>(1000),
+		std::chrono::nanoseconds maxYieldPeriodNs = std::chrono::duration<long, std::milli>(2000),
+		std::chrono::nanoseconds minParkPeriodNs = std::chrono::nanoseconds(1000),
+		std::chrono::nanoseconds maxParkPeriodNs = std::chrono::duration<long, std::milli>(1)
 	) : prePad_(),
-		maxSpins_(maxSpins),
-		maxYields_(maxYields),
+		maxSpinPeriodNs_(maxSpinPeriodNs),
+		maxYieldPeriodNs_(maxYieldPeriodNs),
 		minParkPeriodNs_(minParkPeriodNs),
 		maxParkPeriodNs_(maxParkPeriodNs),
-		spins_(0),
-		yields_(0),
 		parkPeriodNs_(minParkPeriodNs),
 		state_(IdleState::NOT_IDLE),
 		timeoutNs_(timeoutNs),
@@ -47,16 +45,14 @@ public:
 	}
 
 	void reset() {
-		spins_ = 0;
-		yields_ = 0;
 		parkPeriodNs_ = minParkPeriodNs_;
 		state_ = IdleState::NOT_IDLE;
 		startTime_ = std::chrono::steady_clock::time_point();
 	}
 
 	int idle() {
+		auto now = std::chrono::steady_clock::now();
 		if (timeoutNs_ != std::chrono::nanoseconds(0)) {
-			auto now = std::chrono::steady_clock::now();
 			if (startTime_ == std::chrono::steady_clock::time_point()) {
 				startTime_ = now;
 			}
@@ -68,23 +64,23 @@ public:
 		switch(state_) {
 			case IdleState::NOT_IDLE:
 				state_ = IdleState::SPINNING;
-				spins_++;
+				lastStateSwitchTime_ = now;
 				break;
 
 			case IdleState::SPINNING:
 				aeron::concurrent::atomic::cpu_pause();
-				if (++spins_ > maxSpins_) {
+				if (std::chrono::duration_cast<std::chrono::nanoseconds>(now - lastStateSwitchTime_) >= maxSpinPeriodNs_) {
 					state_ = IdleState::YIELDING;
-					yields_ = 0;
+					lastStateSwitchTime_ = now;
 				}
 				break;
 
 			case IdleState::YIELDING:
-				if (++yields_ > maxYields_) {
+				std::this_thread::yield();
+				if (std::chrono::duration_cast<std::chrono::nanoseconds>(now - lastStateSwitchTime_) >= maxYieldPeriodNs_) {
 					state_ = IdleState::PARKING;
 					parkPeriodNs_ = minParkPeriodNs_;
-				} else {
-					std::this_thread::yield();
+					lastStateSwitchTime_ = now;
 				}
 				break;
 
@@ -103,16 +99,15 @@ public:
 
 protected:
 	std::uint8_t prePad_[aeron::util::BitUtil::CACHE_LINE_LENGTH];
-	std::int64_t maxSpins_;
-	std::int64_t maxYields_;
-	std::chrono::duration<long, std::nano> minParkPeriodNs_;
-	std::chrono::duration<long, std::nano> maxParkPeriodNs_;
-	std::int64_t spins_;
-	std::int64_t yields_;
-	std::chrono::duration<long, std::nano> parkPeriodNs_;
+	std::chrono::nanoseconds maxSpinPeriodNs_;
+	std::chrono::nanoseconds maxYieldPeriodNs_;
+	std::chrono::nanoseconds minParkPeriodNs_;
+	std::chrono::nanoseconds maxParkPeriodNs_;
+	std::chrono::nanoseconds parkPeriodNs_;
 	IdleState state_;
 	std::chrono::nanoseconds timeoutNs_;
 	std::chrono::steady_clock::time_point startTime_;
+	std::chrono::steady_clock::time_point lastStateSwitchTime_;
 	std::uint8_t postPad_[aeron::util::BitUtil::CACHE_LINE_LENGTH];
 };
 

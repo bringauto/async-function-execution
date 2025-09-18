@@ -1,6 +1,7 @@
 #pragma once
 
 #include <bringauto/async_function_execution/clients/ClientInterface.hpp>
+#include <bringauto/async_function_execution/Constants.hpp>
 
 #include <Aeron.h>
 #include <FragmentAssembler.h>
@@ -139,7 +140,7 @@ public:
 		while (true) {
 			for (const auto &[channelId, subscription] : aeronSubscriptions_) {
 				if (aeronPolling_[channelId]) {
-					const int fragmentsRead = subscription->poll(*aeronHandler_, 10);
+					const int fragmentsRead = subscription->poll(*aeronHandler_, POLL_FRAGMENTS_LIMIT);
 					if(aeronIdleStrategy_->idle(fragmentsRead) != 0) {
 						aeronIdleStrategy_->reset();
 						return {}; // Error: Aeron message wait timed out
