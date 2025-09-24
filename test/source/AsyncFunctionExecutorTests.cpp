@@ -88,3 +88,43 @@ TEST_F(AsyncFunctionExecutorTests, CallInvalidFunctionsProducerConsumer) {
 	int sendRet = executorProducer.sendReturnMessage(baafe::FunctionId {1}, 42);
 	ASSERT_EQ(sendRet, -1);
 }
+
+
+/**
+ * @brief Tests using an undefined function.
+ */
+TEST_F(AsyncFunctionExecutorTests, UndefinedFunction) {
+	baafe::FunctionDefinition FunctionUndefined {
+		baafe::FunctionId { 99 },
+		baafe::Return { int {} },
+		baafe::Arguments { int {}, int {} }
+	};
+
+	ASSERT_THROW(executorProducer.callFunc(FunctionUndefined, 1, 2), std::runtime_error);
+	ASSERT_THROW(executorConsumer.getFunctionArgs(FunctionUndefined, std::span<const uint8_t> {}), std::runtime_error);
+	int ret = executorConsumer.sendReturnMessage(FunctionUndefined.id, 42);
+	ASSERT_EQ(ret, -1);
+}
+
+
+/**
+ * @brief Tests providing a configuration for an undefined function.
+ */
+TEST_F(AsyncFunctionExecutorTests, ConfigForUndefinedFunction) {
+	// Function ID 99 is not defined in the FunctionList
+	ASSERT_THROW(baafe::AsyncFunctionExecutor(
+		baafe::Config {
+			.isProducer = true,
+			.functionConfigurations = R"(
+				{
+					"99": { "timeout": 1000000 }
+				}
+			)"
+		},
+		baafe::FunctionList { std::tuple{
+			FunctionAdd,
+			FunctionMultiply
+		} },
+		std::make_unique<MockClient>()
+	), std::runtime_error);
+}

@@ -2,6 +2,7 @@
 
 #include <bringauto/async_function_execution/clients/AeronClient.hpp>
 #include <bringauto/async_function_execution/TimeoutIdleStrategy.hpp>
+#include <bringauto/async_function_execution/structures/Settings.hpp>
 
 #include <utility>
 #include <stdexcept>
@@ -18,7 +19,7 @@ namespace bringauto::async_function_execution {
 struct Config {
 	bool isProducer = true;
 	std::chrono::nanoseconds defaultTimeout = std::chrono::nanoseconds(0);
-	// TODO per function config map (for now only config will be timeout)
+	std::string_view functionConfigurations = "";
 };
 
 
@@ -27,7 +28,7 @@ struct Config {
  * Supported range is 0-255
  */
 struct FunctionId {
-	uint8_t value;
+	const uint8_t value;
 };
 
 
@@ -45,7 +46,7 @@ concept HasSerialize = requires(const T& t) {
  */
 template<typename T>
 struct Return {
-	T value;
+	const T value;
 	constexpr Return(T &&val) : value(std::forward<T>(val)) {}
 };
 
@@ -64,7 +65,7 @@ struct Return<void> {
  */
 template<typename... Args>
 struct Arguments {
-	std::tuple<Args...> values;
+	const std::tuple<Args...> values;
 	constexpr Arguments(Args &&...args) : values{std::forward<Args>(args)...} {}
 };
 
@@ -74,9 +75,9 @@ struct Arguments {
  */
 template<typename Ret, typename... Args>
 struct FunctionDefinition {
-	FunctionId id;
-	Return<Ret> returnType;
-	Arguments<Args...> argumentTypes;
+	const FunctionId id;
+	const Return<Ret> returnType;
+	const Arguments<Args...> argumentTypes;
 };
 
 
@@ -85,7 +86,7 @@ struct FunctionDefinition {
  */
 template<typename... Funcs>
 struct FunctionList {
-	std::tuple<Funcs...> functions;
+	const std::tuple<Funcs...> functions;
 	FunctionList(Funcs&&... funcs) : functions(std::forward<Funcs>(funcs)...) {}
 };
 
@@ -106,14 +107,20 @@ public:
 	AsyncFunctionExecutor(Config config,
 						  const FunctionList<Funcs...> &functions,
 						  std::unique_ptr<clients::ClientInterface> client = nullptr)
-			: client_(nullptr), config_(config), functions_(functions) {
+			: client_(nullptr), settings_(config.isProducer, config.defaultTimeout, config.functionConfigurations), functions_(functions) {
 		// Default client if none is provided
 		if (client) {
 			client_ = std::move(client);
 		} else {
 			client_ = std::make_unique<clients::AeronClient<TimeoutIdleStrategy>>(
-				"aeron:ipc", TimeoutIdleStrategy(config.defaultTimeout)
+				DEFAULT_AERON_CONNECTION, TimeoutIdleStrategy(settings_.defaultTimeout)
 			);
+		}
+
+		for (const auto& [funcId, _] : settings_.functionConfigs) {
+			if (!isFunctionDefined(FunctionId{funcId})) {
+				throw std::runtime_error("Warning: Function ID " + std::to_string(static_cast<int>(funcId)) + " in configuration is not defined in FunctionList.");
+			}
 		}
 	};
 
@@ -129,11 +136,11 @@ public:
 		std::vector<uint32_t> fromProducer;
 
 		std::apply([&](auto&&... funcDefs) {
-			(toProducer.push_back(funcDefs.id.value + 1000), ...);
+			(toProducer.push_back(funcDefs.id.value + MESSAGE_RETURN_CHANNEL_OFFSET), ...);
 			(fromProducer.push_back(funcDefs.id.value), ...);
 		}, std::get<0>(functions_.functions));
 
-		if (config_.isProducer) {
+		if (settings_.isProducer) {
 			client_->connect(toProducer, fromProducer);
 		} else {
 			client_->connect(fromProducer, toProducer);
@@ -152,17 +159,20 @@ public:
 	 */
 	template <typename Ret, typename... FArgs, typename... CallArgs>
 	Ret callFunc(const FunctionDefinition<Ret, FArgs...> &function, CallArgs&&... args) {
-		if (!config_.isProducer) {
+		if (!settings_.isProducer) {
 			throw std::runtime_error("Cannot call function in consumer mode");
 		}
 		if (sizeof...(CallArgs) < sizeof...(FArgs)) {
 			throw std::invalid_argument("Argument count mismatch");
 		}
+		if (!isFunctionDefined(function.id)) {
+			throw std::runtime_error("Function ID not defined");
+		}
 
 		auto messageBytes = serializeArgs(function.id, args...);
 		client_->sendMessage(function.id.value, messageBytes);
 
-		auto responseBytes = client_->waitForMessage(function.id.value + 1000);
+		auto responseBytes = client_->waitForMessage(function.id.value + MESSAGE_RETURN_CHANNEL_OFFSET);
 		if (responseBytes.empty()) {
 			throw std::runtime_error("No response received or timeout");
 		}
@@ -184,14 +194,14 @@ public:
 	 * @return A tuple containing the FunctionId and a span of argument bytes. Returns an empty tuple on error.
 	 */
 	std::tuple<FunctionId, std::span<const uint8_t>> pollFunction() {
-		if (config_.isProducer) {
+		if (settings_.isProducer) {
 			std::cerr << "Cannot start polling in producer mode." << std::endl;
-			return {}; // Error: Cannot start polling in producer mode
+			return std::make_tuple(FunctionId{}, std::span<const uint8_t>{}); // Error: Cannot start polling in producer mode
 		}
 
 		auto requestBytes = client_->waitForAnyMessage();
 		if (requestBytes.empty()) {
-			return {}; // Error: No message received or timeout
+			return std::make_tuple(FunctionId{}, std::span<const uint8_t>{}); // Error: No message received or timeout
 		}
 
 		auto [funcId, argBytes] = deserializeRequest(requestBytes);
@@ -209,8 +219,12 @@ public:
 	 */
 	template<typename Ret, typename... Args>
 	auto getFunctionArgs(const FunctionDefinition<Ret, Args...> &function, const std::span<const uint8_t> &argBytes) {
-		if (config_.isProducer) {
+		if (settings_.isProducer) {
 			throw std::runtime_error("Cannot get function arguments in producer mode");
+		}
+
+		if (!isFunctionDefined(function.id)) {
+			throw std::runtime_error("Function ID not defined");
 		}
 
 		if (argBytes.size() < 1) {
@@ -227,7 +241,8 @@ public:
 		std::tuple<Args...> args;
 		auto extractArg = [&](auto &arg) {
 			if (pos >= argBytes.size()) throw std::invalid_argument("Unexpected end of data while reading argument size");
-			uint8_t len = argBytes[pos++];
+			uint16_t len = argBytes[pos] | (static_cast<uint16_t>(argBytes[pos + 1]) << 8);
+			pos += 2;
 			if (pos + len > argBytes.size()) throw std::invalid_argument("Unexpected end of data while reading argument content");
 			
 			if constexpr (HasSerialize<decltype(arg)>) {
@@ -257,21 +272,34 @@ public:
 	 */
 	template<typename T>
 	int sendReturnMessage(const FunctionId &functionId, const T &returnValue) {
-		if (config_.isProducer) {
+		if (!isFunctionDefined(functionId)) {
+			std::cerr << "Function ID not defined." << std::endl;
+			return -1; // Error: Function ID not defined
+		}
+
+		if (settings_.isProducer) {
 			std::cerr << "Cannot send return message in producer mode." << std::endl;
 			return -1; // Error: Cannot send return message in producer mode
 		}
 
 		auto messageBytes = serializeReturn(functionId, returnValue);
-		return client_->sendMessage(functionId.value + 1000, messageBytes);
+		return client_->sendMessage(functionId.value + MESSAGE_RETURN_CHANNEL_OFFSET, messageBytes);
 	}
 
 private:
+	bool isFunctionDefined(const FunctionId &funcId) {
+		bool found = false;
+		std::apply([&](auto&&... funcDefs) {
+			((funcDefs.id.value == funcId.value ? found = true : false), ...);
+		}, std::get<0>(functions_.functions));
+		return found;
+	}
+
 	template<typename... Args>
 	std::span<const uint8_t> serializeArgs(const FunctionId &funcId, const Args&... args) {
 		serializationBuffer_.clear();
 		std::size_t totalSize = 2; // Function ID + Argument count
-		((totalSize += 1 + sizeof(args)), ...); // Each argument: size byte + data
+		((totalSize += 2 + sizeof(args)), ...); // Each argument: size byte + data
 		serializationBuffer_.reserve(totalSize);
 		serializationBuffer_.push_back(funcId.value);
 		serializationBuffer_.push_back(static_cast<uint8_t>(sizeof...(Args)));
@@ -283,7 +311,7 @@ private:
 	template<typename T>
 	std::span<const uint8_t> serializeReturn(const FunctionId &funcId, const T &returnValue) {
 		serializationBuffer_.clear();
-		std::size_t totalSize = 2 + sizeof(returnValue);
+		std::size_t totalSize = 3 + sizeof(returnValue);
 		serializationBuffer_.reserve(totalSize);
 		serializationBuffer_.push_back(funcId.value);
 		appendArg(serializationBuffer_, returnValue);
@@ -295,14 +323,18 @@ private:
 	void appendArg(std::vector<uint8_t>& buffer, const T& arg) {
 		if constexpr (HasSerialize<T>) {
 			auto bytes = arg.serialize();
-			if (bytes.size() > 255) {
+			if (bytes.size() > MAX_ARGUMENT_SIZE) {
 				throw std::invalid_argument("Serialized data too large");
 			}
-			buffer.push_back(static_cast<uint8_t>(bytes.size()));
+			uint16_t size = static_cast<uint16_t>(bytes.size());
+			buffer.push_back(static_cast<uint8_t>(size & 0xFF));
+			buffer.push_back(static_cast<uint8_t>((size >> 8) & 0xFF));
 			buffer.insert(buffer.end(), bytes.begin(), bytes.end());
 		} else {
 			static_assert(std::is_trivially_copyable_v<T>, "Argument type must be trivially copyable");
-			buffer.push_back(static_cast<uint8_t>(sizeof(arg)));
+			uint16_t size = static_cast<uint16_t>(sizeof(arg));
+			buffer.push_back(static_cast<uint8_t>(size & 0xFF));
+			buffer.push_back(static_cast<uint8_t>((size >> 8) & 0xFF));
 			buffer.insert(buffer.end(), reinterpret_cast<const uint8_t*>(&arg), reinterpret_cast<const uint8_t*>(&arg) + sizeof(T));
 		}
 	}
@@ -316,9 +348,9 @@ private:
 		
 		T value;
 		if constexpr (HasSerialize<T>) {
-			value.deserialize(std::span {bytes.data() + 2, bytes.size() - 2});
+			value.deserialize(std::span {bytes.data() + 3, bytes.size() - 3});
 		} else {
-			std::memcpy(&value, bytes.data() + 2, sizeof(T));
+			std::memcpy(&value, bytes.data() + 3, sizeof(T));
 		}
 		return value;
 	}
@@ -337,7 +369,7 @@ private:
 	/// Buffer used for serialization of messages.
 	mutable std::vector<uint8_t> serializationBuffer_;
 	std::unique_ptr<clients::ClientInterface> client_;
-	Config config_;
+	structures::Settings settings_;
 	FunctionList<Funcs...> functions_;
 };
 

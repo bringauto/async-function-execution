@@ -2,4 +2,4 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.25 FATAL_ERROR)
 
 ADD_EXECUTABLE(example main.cpp)
 
-TARGET_LINK_LIBRARIES(example PUBLIC async-function-execution-static)
+TARGET_LINK_LIBRARIES(example PUBLIC async-function-execution-shared)

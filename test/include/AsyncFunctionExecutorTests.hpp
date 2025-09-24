@@ -46,6 +46,12 @@ baafe::FunctionDefinition FunctionReturnSameString {
 	baafe::Arguments { SerializableString {} }
 };
 
+baafe::FunctionDefinition FunctionNoArgs {
+	baafe::FunctionId { 5 },
+	baafe::Return { int {} },
+	baafe::Arguments { }
+};
+
 baafe::AsyncFunctionExecutor executorProducer {
 	baafe::Config {
 		.isProducer = true,
@@ -54,19 +60,32 @@ baafe::AsyncFunctionExecutor executorProducer {
 	baafe::FunctionList { std::tuple{
 		FunctionAdd,
 		FunctionMultiply,
-		FunctionReturnSame
+		FunctionReturnSame,
+		FunctionReturnSameString,
+		FunctionNoArgs
 	} },
 	std::make_unique<MockClient>()
 };
 
 baafe::AsyncFunctionExecutor executorConsumer {
 	baafe::Config {
-		.isProducer = false
+		.isProducer = false,
+		.functionConfigurations = R"(
+			{
+				"1": { "timeout": 1000000 },
+				"2": { "timeout": 2000000 },
+				"3": { "timeout": 3000000 },
+				"4": { "timeout": 4000000 },
+				"5": { "timeout": 5000000 }
+			}
+		)"
 	},
 	baafe::FunctionList { std::tuple{
 		FunctionAdd,
 		FunctionMultiply,
-		FunctionReturnSame
+		FunctionReturnSame,
+		FunctionReturnSameString,
+		FunctionNoArgs
 	} },
 	std::make_unique<MockClient>()
 };
