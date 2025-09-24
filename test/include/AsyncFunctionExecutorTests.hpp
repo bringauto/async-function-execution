@@ -69,7 +69,16 @@ baafe::AsyncFunctionExecutor executorProducer {
 
 baafe::AsyncFunctionExecutor executorConsumer {
 	baafe::Config {
-		.isProducer = false
+		.isProducer = false,
+		.functionConfigurations = R"(
+			{
+				"1": { "timeout": 1000000 },
+				"2": { "timeout": 2000000 },
+				"3": { "timeout": 3000000 },
+				"4": { "timeout": 4000000 },
+				"5": { "timeout": 5000000 }
+			}
+		)"
 	},
 	baafe::FunctionList { std::tuple{
 		FunctionAdd,

@@ -2,6 +2,7 @@
 
 #include <bringauto/async_function_execution/clients/AeronClient.hpp>
 #include <bringauto/async_function_execution/TimeoutIdleStrategy.hpp>
+#include <bringauto/async_function_execution/structures/Settings.hpp>
 
 #include <utility>
 #include <stdexcept>
@@ -18,7 +19,7 @@ namespace bringauto::async_function_execution {
 struct Config {
 	bool isProducer = true;
 	std::chrono::nanoseconds defaultTimeout = std::chrono::nanoseconds(0);
-	// TODO per function config map (for now only config will be timeout)
+	std::string_view functionConfigurations = "";
 };
 
 
@@ -27,7 +28,7 @@ struct Config {
  * Supported range is 0-255
  */
 struct FunctionId {
-	uint8_t value;
+	const uint8_t value;
 };
 
 
@@ -45,7 +46,7 @@ concept HasSerialize = requires(const T& t) {
  */
 template<typename T>
 struct Return {
-	T value;
+	const T value;
 	constexpr Return(T &&val) : value(std::forward<T>(val)) {}
 };
 
@@ -64,7 +65,7 @@ struct Return<void> {
  */
 template<typename... Args>
 struct Arguments {
-	std::tuple<Args...> values;
+	const std::tuple<Args...> values;
 	constexpr Arguments(Args &&...args) : values{std::forward<Args>(args)...} {}
 };
 
@@ -74,9 +75,9 @@ struct Arguments {
  */
 template<typename Ret, typename... Args>
 struct FunctionDefinition {
-	FunctionId id;
-	Return<Ret> returnType;
-	Arguments<Args...> argumentTypes;
+	const FunctionId id;
+	const Return<Ret> returnType;
+	const Arguments<Args...> argumentTypes;
 };
 
 
@@ -85,7 +86,7 @@ struct FunctionDefinition {
  */
 template<typename... Funcs>
 struct FunctionList {
-	std::tuple<Funcs...> functions;
+	const std::tuple<Funcs...> functions;
 	FunctionList(Funcs&&... funcs) : functions(std::forward<Funcs>(funcs)...) {}
 };
 
@@ -106,14 +107,20 @@ public:
 	AsyncFunctionExecutor(Config config,
 						  const FunctionList<Funcs...> &functions,
 						  std::unique_ptr<clients::ClientInterface> client = nullptr)
-			: client_(nullptr), config_(config), functions_(functions) {
+			: client_(nullptr), settings_(config.isProducer, config.defaultTimeout, config.functionConfigurations), functions_(functions) {
 		// Default client if none is provided
 		if (client) {
 			client_ = std::move(client);
 		} else {
 			client_ = std::make_unique<clients::AeronClient<TimeoutIdleStrategy>>(
-				DEFAULT_AERON_CONNECTION, TimeoutIdleStrategy(config.defaultTimeout)
+				DEFAULT_AERON_CONNECTION, TimeoutIdleStrategy(settings_.defaultTimeout)
 			);
+		}
+
+		for (const auto& [funcId, _] : settings_.functionConfigs) {
+			if (!isFunctionDefined(FunctionId{funcId})) {
+				throw std::runtime_error("Warning: Function ID " + std::to_string(static_cast<int>(funcId)) + " in configuration is not defined in FunctionList.");
+			}
 		}
 	};
 
@@ -133,7 +140,7 @@ public:
 			(fromProducer.push_back(funcDefs.id.value), ...);
 		}, std::get<0>(functions_.functions));
 
-		if (config_.isProducer) {
+		if (settings_.isProducer) {
 			client_->connect(toProducer, fromProducer);
 		} else {
 			client_->connect(fromProducer, toProducer);
@@ -152,7 +159,7 @@ public:
 	 */
 	template <typename Ret, typename... FArgs, typename... CallArgs>
 	Ret callFunc(const FunctionDefinition<Ret, FArgs...> &function, CallArgs&&... args) {
-		if (!config_.isProducer) {
+		if (!settings_.isProducer) {
 			throw std::runtime_error("Cannot call function in consumer mode");
 		}
 		if (sizeof...(CallArgs) < sizeof...(FArgs)) {
@@ -187,14 +194,14 @@ public:
 	 * @return A tuple containing the FunctionId and a span of argument bytes. Returns an empty tuple on error.
 	 */
 	std::tuple<FunctionId, std::span<const uint8_t>> pollFunction() {
-		if (config_.isProducer) {
+		if (settings_.isProducer) {
 			std::cerr << "Cannot start polling in producer mode." << std::endl;
-			return {}; // Error: Cannot start polling in producer mode
+			return std::make_tuple(FunctionId{}, std::span<const uint8_t>{}); // Error: Cannot start polling in producer mode
 		}
 
 		auto requestBytes = client_->waitForAnyMessage();
 		if (requestBytes.empty()) {
-			return {}; // Error: No message received or timeout
+			return std::make_tuple(FunctionId{}, std::span<const uint8_t>{}); // Error: No message received or timeout
 		}
 
 		auto [funcId, argBytes] = deserializeRequest(requestBytes);
@@ -212,7 +219,7 @@ public:
 	 */
 	template<typename Ret, typename... Args>
 	auto getFunctionArgs(const FunctionDefinition<Ret, Args...> &function, const std::span<const uint8_t> &argBytes) {
-		if (config_.isProducer) {
+		if (settings_.isProducer) {
 			throw std::runtime_error("Cannot get function arguments in producer mode");
 		}
 
@@ -270,7 +277,7 @@ public:
 			return -1; // Error: Function ID not defined
 		}
 
-		if (config_.isProducer) {
+		if (settings_.isProducer) {
 			std::cerr << "Cannot send return message in producer mode." << std::endl;
 			return -1; // Error: Cannot send return message in producer mode
 		}
@@ -362,7 +369,7 @@ private:
 	/// Buffer used for serialization of messages.
 	mutable std::vector<uint8_t> serializationBuffer_;
 	std::unique_ptr<clients::ClientInterface> client_;
-	Config config_;
+	structures::Settings settings_;
 	FunctionList<Funcs...> functions_;
 };
 

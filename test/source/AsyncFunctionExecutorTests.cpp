@@ -105,3 +105,26 @@ TEST_F(AsyncFunctionExecutorTests, UndefinedFunction) {
 	int ret = executorConsumer.sendReturnMessage(FunctionUndefined.id, 42);
 	ASSERT_EQ(ret, -1);
 }
+
+
+/**
+ * @brief Tests providing a configuration for an undefined function.
+ */
+TEST_F(AsyncFunctionExecutorTests, ConfigForUndefinedFunction) {
+	// Function ID 99 is not defined in the FunctionList
+	ASSERT_THROW(baafe::AsyncFunctionExecutor(
+		baafe::Config {
+			.isProducer = true,
+			.functionConfigurations = R"(
+				{
+					"99": { "timeout": 1000000 }
+				}
+			)"
+		},
+		baafe::FunctionList { std::tuple{
+			FunctionAdd,
+			FunctionMultiply
+		} },
+		std::make_unique<MockClient>()
+	), std::runtime_error);
+}

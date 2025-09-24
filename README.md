@@ -12,7 +12,7 @@ Both sides need to have all functions defined the same way. Example implementati
 using namespace bringauto::async_function_execution;
 
 FunctionDefinition FunctionAdd {
-	FunctionId { 1 }, // id can be 0-999 and has to be unique
+	FunctionId { 1 }, // id can be 0-255 and has to be unique
 	Return { int {} }, // return type of the function
 	Arguments { int {}, int {}, int {} } // individual function argument types
 };

@@ -86,6 +86,6 @@ int main() {
 	driver.stop();
 	driverThread.join();
 	std::cout << "Aeron Driver has been stopped." << std::endl;
-
+	std::cout << "Test completed." << std::endl;
 	return 0;
 }
