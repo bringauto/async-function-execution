@@ -19,13 +19,13 @@ namespace bringauto::async_function_execution {
 struct Config {
 	bool isProducer = true;
 	std::chrono::nanoseconds defaultTimeout = std::chrono::nanoseconds(0);
-	std::string_view functionConfigurations = "";
+	structures::FunctionConfigs functionConfigurations {};
 };
 
 
 /**
  * @brief Unique identifier for a function in the AsyncFunctionExecutor.
- * Supported range is 0-255
+ * value: The function ID value. Supported range is 0-255.
  */
 struct FunctionId {
 	const uint8_t value;
@@ -43,6 +43,7 @@ concept HasSerialize = requires(const T& t) {
 
 /**
  * @brief Structure representing the return type of function.
+ * value: The return type value.
  */
 template<typename T>
 struct Return {
@@ -62,6 +63,7 @@ struct Return<void> {
 
 /**
  * @brief Structure representing the argument types of a function.
+ * values: A tuple holding the types of the function arguments.
  */
 template<typename... Args>
 struct Arguments {
@@ -72,6 +74,9 @@ struct Arguments {
 
 /**
  * @brief Definition of a function that can be called or responded to via AsyncFunctionExecutor.
+ * id: Unique identifier for the function.
+ * returnType: The return type of the function.
+ * argumentTypes: The argument types of the function.
  */
 template<typename Ret, typename... Args>
 struct FunctionDefinition {
@@ -82,13 +87,43 @@ struct FunctionDefinition {
 
 
 /**
- * @brief Helper structure to hold a list of function definitions.
+ * @brief Helper type trait to identify FunctionDefinition types.
  */
-template<typename... Funcs>
+template<typename T>
+struct is_function_definition : std::false_type {};
+
+
+/**
+ * @brief Specialization of is_function_definition for FunctionDefinition types.
+ */
+template<typename Ret, typename... Args>
+struct is_function_definition<FunctionDefinition<Ret, Args...>> : std::true_type {};
+
+
+/**
+ * @brief Concept to ensure a type is a FunctionDefinition.
+ */
+template<typename T>
+concept IsFunctionDefinition = requires { typename std::decay_t<T>; } &&
+	is_function_definition<std::decay_t<T>>::value;
+
+
+/**
+ * @brief Helper structure used to store function definitions.
+ * functions: A tuple holding all the function definitions.
+ */
+template<IsFunctionDefinition... Funcs>
 struct FunctionList {
 	const std::tuple<Funcs...> functions;
-	FunctionList(Funcs&&... funcs) : functions(std::forward<Funcs>(funcs)...) {}
+	FunctionList(Funcs... funcs) : functions(std::move(funcs)...) {}
 };
+
+
+/**
+ * @brief Deduction guide for FunctionList to simplify its construction.
+ */
+template<typename... Funcs>
+FunctionList(Funcs&&...) -> FunctionList<std::decay_t<Funcs>...>;
 
 
 /**
@@ -103,6 +138,7 @@ public:
 	 * 
 	 * @param config Configuration for the async function executor.
 	 * @param functions A list of function definitions that the client can call or respond to.
+	 * @param client Optional custom client implementing ClientInterface. If not provided, a default AeronClient is used.
 	 */
 	AsyncFunctionExecutor(Config config,
 						  const FunctionList<Funcs...> &functions,
@@ -117,7 +153,7 @@ public:
 			);
 		}
 
-		for (const auto& [funcId, _] : settings_.functionConfigs) {
+		for (const auto& [funcId, _] : settings_.functionConfigs.configs) {
 			if (!isFunctionDefined(FunctionId{funcId})) {
 				throw std::runtime_error("Warning: Function ID " + std::to_string(static_cast<int>(funcId)) + " in configuration is not defined in FunctionList.");
 			}
@@ -130,27 +166,28 @@ public:
 	/**
 	 * @brief Connects the client to the media driver and sets up communication channels.
 	 * Needs to be called before any function calls or polling.
+	 * 
+	 * @return Returns 0 on success, or a negative error code on failure.
 	 */
-	void connect() {
+	int connect() {
 		std::vector<uint32_t> toProducer;
 		std::vector<uint32_t> fromProducer;
 
-		std::apply([&](auto&&... funcDefs) {
+		std::apply([&](const auto&... funcDefs) {
 			(toProducer.push_back(funcDefs.id.value + MESSAGE_RETURN_CHANNEL_OFFSET), ...);
 			(fromProducer.push_back(funcDefs.id.value), ...);
-		}, std::get<0>(functions_.functions));
+		}, functions_.functions);
 
 		if (settings_.isProducer) {
-			client_->connect(toProducer, fromProducer);
-		} else {
-			client_->connect(fromProducer, toProducer);
+			return client_->connect(toProducer, fromProducer);
 		}
+		return client_->connect(fromProducer, toProducer);
 	}
 
 
 	/**
 	 * @brief Calls a function defined in the FunctionList, sending arguments and waiting for a response.
-	 * Can only be used in producer mode.
+	 * Can only be used in producer mode. Throws on error.
 	 * 
 	 * @param function The function definition of which function to call.
 	 * @param args The arguments to pass to the function.
@@ -172,7 +209,11 @@ public:
 		auto messageBytes = serializeArgs(function.id, args...);
 		client_->sendMessage(function.id.value, messageBytes);
 
-		auto responseBytes = client_->waitForMessage(function.id.value + MESSAGE_RETURN_CHANNEL_OFFSET);
+		auto responseBytes = client_->waitForMessage(function.id.value + MESSAGE_RETURN_CHANNEL_OFFSET,
+													 settings_.functionConfigs.configs.contains(function.id.value) ?
+													 settings_.functionConfigs.configs[function.id.value].timeout :
+													 settings_.defaultTimeout
+		);
 		if (responseBytes.empty()) {
 			throw std::runtime_error("No response received or timeout");
 		}
@@ -211,7 +252,7 @@ public:
 
 	/**
 	 * @brief Deserializes function arguments from a byte span into a tuple of argument values.
-	 * Can only be used in consumer mode.
+	 * Can only be used in consumer mode. Throws on error.
 	 * 
 	 * @param function The function definition corresponding to the arguments.
 	 * @param argBytes The byte span containing the serialized arguments.
@@ -289,9 +330,9 @@ public:
 private:
 	bool isFunctionDefined(const FunctionId &funcId) {
 		bool found = false;
-		std::apply([&](auto&&... funcDefs) {
+		std::apply([&](const auto&... funcDefs) {
 			((funcDefs.id.value == funcId.value ? found = true : false), ...);
-		}, std::get<0>(functions_.functions));
+		}, functions_.functions);
 		return found;
 	}
 
@@ -299,7 +340,7 @@ private:
 	std::span<const uint8_t> serializeArgs(const FunctionId &funcId, const Args&... args) {
 		serializationBuffer_.clear();
 		std::size_t totalSize = 2; // Function ID + Argument count
-		((totalSize += 2 + sizeof(args)), ...); // Each argument: size byte + data
+		((totalSize += 2 + sizeof(args)), ...); // Each argument: size bytes + data
 		serializationBuffer_.reserve(totalSize);
 		serializationBuffer_.push_back(funcId.value);
 		serializationBuffer_.push_back(static_cast<uint8_t>(sizeof...(Args)));
@@ -368,6 +409,7 @@ private:
 
 	/// Buffer used for serialization of messages.
 	mutable std::vector<uint8_t> serializationBuffer_;
+	/// Client used for communication. Can be a custom implementation of ClientInterface.
 	std::unique_ptr<clients::ClientInterface> client_;
 	structures::Settings settings_;
 	FunctionList<Funcs...> functions_;

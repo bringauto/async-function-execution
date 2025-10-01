@@ -21,12 +21,36 @@ AsyncFunctionExecutor executorProducer {
 	Config {
 		.isProducer = true, // decides the mode of the executor
 		.defaultTimeout = std::chrono::seconds(1) // polling timeout (should only be used when producer)
+		.functionConfigurations = structures::FuntionConfigs { {
+			{ 1, { std::chrono::seconds(2) }}
+		} }
 	},
-	FunctionList { std::tuple{ // list of all functions
+	FunctionList { // list of all functions
 		FunctionAdd
-	} }
+	}
 };
 ```
+
+#### Post initialization
+
+Before using any functions, connection needs to be established using the connect function:
+
+```cpp
+executorProducer.connect();
+```
+
+#### functionConfigurations
+
+The functionConfigurations parameter accepts an unordered map representing per function configurations. Syntax:
+
+```cpp
+{
+	{ <function-id>, { <timeout> } }
+}
+```
+
+Supported parameters:
+  - timeout: replaces the default timeout value for that function (in nanoseconds)
 
 ### Producer
 
@@ -79,27 +103,16 @@ If a producer expects a return value where returned bytes are used directly, the
 
 ## Requirements
 
-- [cmlib](https://github.com/cmakelib/cmakelib)
 - [aeron](https://github.com/aeron-io/aeron)
+- [cmlib](https://github.com/cmakelib/cmakelib)
+  - the CMLIB_DIR env value has to be set
 
-### Aeron setup
-
-Build and install aeron to any folder.
-
-```bash
-git clone https://github.com/aeron-io/aeron.git
-cd aeron
-git checkout 1.48.5
-./cppbuild/cppbuild
-cd cppbuild/Release
-cmake --install . --prefix <absolute-path-to-install-folder>
-```
 
 ## Build
 
 ```bash
 mkdir -p _build && cd _build
-cmake ../ -DCMLIB_DIR=<absolute-path-cmakelib> -DCMAKE_PREFIX_PATH=<path-to-aeron-install>
+cmake ../
 make
 ```
 

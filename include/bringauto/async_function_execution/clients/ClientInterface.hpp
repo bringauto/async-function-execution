@@ -3,6 +3,7 @@
 #include <span>
 #include <cstdint>
 #include <vector>
+#include <chrono>
 
 
 
@@ -35,9 +36,10 @@ public:
 	 * @brief Waits for a message from the specified channel ID.
 	 * 
 	 * @param channelId The channel ID to wait for a message from.
+	 * @param timeout Maximum time to wait for a message before timing out.
 	 * @return Bytes of the last message received. Returns an empty span on timeout or error.
 	 */
-	virtual std::span<const uint8_t> waitForMessage(const uint32_t channelId) = 0;
+	virtual std::span<const uint8_t> waitForMessage(const uint32_t channelId, std::chrono::nanoseconds timeout) = 0;
 
 	/**
 	 * @brief Waits for any message from all channels.

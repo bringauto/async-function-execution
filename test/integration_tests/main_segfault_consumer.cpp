@@ -29,9 +29,9 @@ baafe::AsyncFunctionExecutor executorConsumer {
 	baafe::Config {
 		.isProducer = false
 	},
-	baafe::FunctionList { std::tuple{
+	baafe::FunctionList {
 		Function
-	} }
+	}
 };
 
 

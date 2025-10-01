@@ -55,38 +55,36 @@ baafe::FunctionDefinition FunctionNoArgs {
 baafe::AsyncFunctionExecutor executorProducer {
 	baafe::Config {
 		.isProducer = true,
-		.defaultTimeout = std::chrono::seconds(1)
+		.defaultTimeout = std::chrono::seconds(1),
+		.functionConfigurations = baafe::structures::FunctionConfigs { {
+			{ 1, { std::chrono::nanoseconds(1000000) } },
+			{ 2, { std::chrono::nanoseconds(2000000) } },
+			{ 3, { std::chrono::nanoseconds(3000000) } },
+			{ 4, { std::chrono::nanoseconds(4000000) } },
+			{ 5, { std::chrono::nanoseconds(5000000) } }
+		} }
 	},
-	baafe::FunctionList { std::tuple{
+	baafe::FunctionList {
 		FunctionAdd,
 		FunctionMultiply,
 		FunctionReturnSame,
 		FunctionReturnSameString,
 		FunctionNoArgs
-	} },
+	},
 	std::make_unique<MockClient>()
 };
 
 baafe::AsyncFunctionExecutor executorConsumer {
 	baafe::Config {
-		.isProducer = false,
-		.functionConfigurations = R"(
-			{
-				"1": { "timeout": 1000000 },
-				"2": { "timeout": 2000000 },
-				"3": { "timeout": 3000000 },
-				"4": { "timeout": 4000000 },
-				"5": { "timeout": 5000000 }
-			}
-		)"
+		.isProducer = false
 	},
-	baafe::FunctionList { std::tuple{
+	baafe::FunctionList {
 		FunctionAdd,
 		FunctionMultiply,
 		FunctionReturnSame,
 		FunctionReturnSameString,
 		FunctionNoArgs
-	} },
+	},
 	std::make_unique<MockClient>()
 };
 

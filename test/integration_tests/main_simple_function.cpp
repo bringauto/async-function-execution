@@ -17,18 +17,18 @@ baafe::AsyncFunctionExecutor executorProducer {
 		.isProducer = true,
 		.defaultTimeout = std::chrono::seconds(1)
 	},
-	baafe::FunctionList { std::tuple{
+	baafe::FunctionList {
 		FunctionAdd
-	} }
+	}
 };
 
 baafe::AsyncFunctionExecutor executorConsumer {
 	baafe::Config {
 		.isProducer = false
 	},
-	baafe::FunctionList { std::tuple{
+	baafe::FunctionList {
 		FunctionAdd
-	} }
+	}
 };
 
 void consumerLoop() {

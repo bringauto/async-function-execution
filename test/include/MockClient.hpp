@@ -77,8 +77,10 @@ public:
 		return 0;
 	};
 
-	std::span<const uint8_t> waitForMessage(const uint32_t channelId) override {
-		(void)channelId;
+	std::span<const uint8_t> waitForMessage(const uint32_t channelId, std::chrono::nanoseconds timeout) override {
+		// Test if the timeout is correctly set for each function
+		EXPECT_EQ((channelId - 1000) * 1000000, timeout.count());
+
 		if (messageBuffer_.empty()) {
 			return {};
 		}

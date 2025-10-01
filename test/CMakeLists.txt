@@ -3,8 +3,8 @@ PROJECT(async-function-execution)
 
 SET(CMAKE_CXX_STANDARD 20)
 
-IF(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    ADD_DEFINITIONS(-DDEBUG)
+IF(NOT TARGET async-function-execution-shared)
+    MESSAGE(FATAL_ERROR "The async-function-execution-shared target was not found. Please build the tests as part of the async-function-execution-shared project.")
 ENDIF()
 
 # GTest static library is not compiled as pic

@@ -6,9 +6,11 @@
 
 ## Build
 
+Tests are built as part of the main project. Don't use the CMakeList in the test folder.
+
 ```bash
 mkdir -p _build_tests && cd _build_tests
-cmake ../ -DCMLIB_DIR=<absolute path cmakelib> -DBRINGAUTO_TESTS=ON -DCMAKE_PREFIX_PATH=<path-to-aeron-install>
+cmake ../ -DBRINGAUTO_TESTS=ON
 make
 ```
 

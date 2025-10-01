@@ -115,16 +115,14 @@ TEST_F(AsyncFunctionExecutorTests, ConfigForUndefinedFunction) {
 	ASSERT_THROW(baafe::AsyncFunctionExecutor(
 		baafe::Config {
 			.isProducer = true,
-			.functionConfigurations = R"(
-				{
-					"99": { "timeout": 1000000 }
-				}
-			)"
+			.functionConfigurations = baafe::structures::FunctionConfigs { {
+				{ 99, { std::chrono::nanoseconds(1000000) } }
+			} }
 		},
-		baafe::FunctionList { std::tuple{
+		baafe::FunctionList {
 			FunctionAdd,
 			FunctionMultiply
-		} },
+		},
 		std::make_unique<MockClient>()
 	), std::runtime_error);
 }

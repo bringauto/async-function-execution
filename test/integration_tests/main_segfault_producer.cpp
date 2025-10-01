@@ -30,9 +30,9 @@ baafe::AsyncFunctionExecutor executorProducer {
 		.isProducer = true,
 		.defaultTimeout = std::chrono::seconds(1)
 	},
-	baafe::FunctionList { std::tuple{
+	baafe::FunctionList {
 		Function
-	} }
+	}
 };
 
 int main() {
