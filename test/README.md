@@ -6,7 +6,7 @@
 
 ## Build
 
-Tests are built as part of the main project. Don't use the CMakeList in the test folder.
+Tests are built as part of the main project. Don't use the CMakeLists file in the test folder.
 
 ```bash
 mkdir -p _build_tests && cd _build_tests

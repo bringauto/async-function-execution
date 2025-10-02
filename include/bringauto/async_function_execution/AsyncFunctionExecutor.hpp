@@ -48,7 +48,7 @@ concept HasSerialize = requires(const T& t) {
 template<typename T>
 struct Return {
 	const T value;
-	constexpr Return(T &&val) : value(std::forward<T>(val)) {}
+	constexpr explicit Return(T &&val) : value(std::forward<T>(val)) {}
 };
 
 
@@ -57,7 +57,7 @@ struct Return {
  */
 template<>
 struct Return<void> {
-	constexpr Return() noexcept {}
+	constexpr Return() noexcept = default;
 };
 
 
@@ -68,7 +68,7 @@ struct Return<void> {
 template<typename... Args>
 struct Arguments {
 	const std::tuple<Args...> values;
-	constexpr Arguments(Args &&...args) : values{std::forward<Args>(args)...} {}
+	constexpr explicit Arguments(Args &&...args) : values{std::forward<Args>(args)...} {}
 };
 
 
@@ -115,7 +115,7 @@ concept IsFunctionDefinition = requires { typename std::decay_t<T>; } &&
 template<IsFunctionDefinition... Funcs>
 struct FunctionList {
 	const std::tuple<Funcs...> functions;
-	FunctionList(Funcs... funcs) : functions(std::move(funcs)...) {}
+	explicit FunctionList(Funcs... funcs) : functions(std::move(funcs)...) {}
 };
 
 
@@ -140,7 +140,7 @@ public:
 	 * @param functions A list of function definitions that the client can call or respond to.
 	 * @param client Optional custom client implementing ClientInterface. If not provided, a default AeronClient is used.
 	 */
-	AsyncFunctionExecutor(Config config,
+	AsyncFunctionExecutor(const Config& config,
 						  const FunctionList<Funcs...> &functions,
 						  std::unique_ptr<clients::ClientInterface> client = nullptr)
 			: client_(nullptr), settings_(config.isProducer, config.defaultTimeout, config.functionConfigurations), functions_(functions) {
@@ -153,9 +153,9 @@ public:
 			);
 		}
 
-		for (const auto& [funcId, _] : settings_.functionConfigs.configs) {
+		for (const auto &funcId: settings_.functionConfigs.configs | std::views::keys) {
 			if (!isFunctionDefined(FunctionId{funcId})) {
-				throw std::runtime_error("Warning: Function ID " + std::to_string(static_cast<int>(funcId)) + " in configuration is not defined in FunctionList.");
+				throw std::runtime_error("Warning: Function ID " + std::to_string(funcId) + " in configuration is not defined in FunctionList.");
 			}
 		}
 	};
@@ -240,7 +240,7 @@ public:
 			return std::make_tuple(FunctionId{}, std::span<const uint8_t>{}); // Error: Cannot start polling in producer mode
 		}
 
-		auto requestBytes = client_->waitForAnyMessage();
+		const auto requestBytes = client_->waitForAnyMessage();
 		if (requestBytes.empty()) {
 			return std::make_tuple(FunctionId{}, std::span<const uint8_t>{}); // Error: No message received or timeout
 		}
@@ -268,7 +268,7 @@ public:
 			throw std::runtime_error("Function ID not defined");
 		}
 
-		if (argBytes.size() < 1) {
+		if (argBytes.empty()) {
 			throw std::invalid_argument("Not enough data to read argument count");
 		}
 
@@ -282,7 +282,7 @@ public:
 		std::tuple<Args...> args;
 		auto extractArg = [&](auto &arg) {
 			if (pos >= argBytes.size()) throw std::invalid_argument("Unexpected end of data while reading argument size");
-			uint16_t len = argBytes[pos] | (static_cast<uint16_t>(argBytes[pos + 1]) << 8);
+			const uint16_t len = argBytes[pos] | (static_cast<uint16_t>(argBytes[pos + 1]) << 8);
 			pos += 2;
 			if (pos + len > argBytes.size()) throw std::invalid_argument("Unexpected end of data while reading argument content");
 			
@@ -352,7 +352,7 @@ private:
 	template<typename T>
 	std::span<const uint8_t> serializeReturn(const FunctionId &funcId, const T &returnValue) {
 		serializationBuffer_.clear();
-		std::size_t totalSize = 3 + sizeof(returnValue);
+		const std::size_t totalSize = 3 + sizeof(returnValue);
 		serializationBuffer_.reserve(totalSize);
 		serializationBuffer_.push_back(funcId.value);
 		appendArg(serializationBuffer_, returnValue);
@@ -367,15 +367,15 @@ private:
 			if (bytes.size() > MAX_ARGUMENT_SIZE) {
 				throw std::invalid_argument("Serialized data too large");
 			}
-			uint16_t size = static_cast<uint16_t>(bytes.size());
+			const auto size = static_cast<uint16_t>(bytes.size());
 			buffer.push_back(static_cast<uint8_t>(size & 0xFF));
-			buffer.push_back(static_cast<uint8_t>((size >> 8) & 0xFF));
+			buffer.push_back(static_cast<uint8_t>(size >> 8 & 0xFF));
 			buffer.insert(buffer.end(), bytes.begin(), bytes.end());
 		} else {
 			static_assert(std::is_trivially_copyable_v<T>, "Argument type must be trivially copyable");
-			uint16_t size = static_cast<uint16_t>(sizeof(arg));
+			const auto size = static_cast<uint16_t>(sizeof(arg));
 			buffer.push_back(static_cast<uint8_t>(size & 0xFF));
-			buffer.push_back(static_cast<uint8_t>((size >> 8) & 0xFF));
+			buffer.push_back(static_cast<uint8_t>(size >> 8 & 0xFF));
 			buffer.insert(buffer.end(), reinterpret_cast<const uint8_t*>(&arg), reinterpret_cast<const uint8_t*>(&arg) + sizeof(T));
 		}
 	}
@@ -398,7 +398,7 @@ private:
 
 
 	std::tuple<FunctionId, std::span<const uint8_t>> deserializeRequest(const std::span<const uint8_t>& bytes) {
-		if (bytes.size() < 1) {
+		if (bytes.empty()) {
 			throw std::invalid_argument("Not enough data to deserialize request");
 		}
 		FunctionId funcId{ bytes[0] };

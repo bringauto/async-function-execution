@@ -1,11 +1,6 @@
 #pragma once
 
-#include <concurrent/Atomic64.h>
-#include <util/BitUtil.h>
-
-#include <thread>
 #include <chrono>
-#include <algorithm>
 
 
 
@@ -23,11 +18,11 @@ public:
 	 * @param maxParkPeriodNs Maximum duration to sleep in the PARKING state. Default is 1 millisecond.
 	 */
 	explicit TimeoutIdleStrategy(
-		std::chrono::nanoseconds timeoutNs = std::chrono::nanoseconds(0),
-		std::chrono::nanoseconds maxSpinPeriodNs = std::chrono::duration<long, std::milli>(1000),
-		std::chrono::nanoseconds maxYieldPeriodNs = std::chrono::duration<long, std::milli>(2000),
-		std::chrono::nanoseconds minParkPeriodNs = std::chrono::nanoseconds(1000),
-		std::chrono::nanoseconds maxParkPeriodNs = std::chrono::duration<long, std::milli>(1)
+		const std::chrono::nanoseconds timeoutNs = std::chrono::nanoseconds(0),
+		const std::chrono::nanoseconds maxSpinPeriodNs = std::chrono::duration<long, std::milli>(1000),
+		const std::chrono::nanoseconds maxYieldPeriodNs = std::chrono::duration<long, std::milli>(2000),
+		const std::chrono::nanoseconds minParkPeriodNs = std::chrono::nanoseconds(1000),
+		const std::chrono::nanoseconds maxParkPeriodNs = std::chrono::duration<long, std::milli>(1)
 	) : maxSpinPeriodNs_(maxSpinPeriodNs),
 		maxYieldPeriodNs_(maxYieldPeriodNs),
 		minParkPeriodNs_(minParkPeriodNs),
@@ -44,7 +39,7 @@ public:
 	 * configuration will be used.
 	 * @return 0 if idling continues, -1 if the timeout has been reached.
 	 */
-	int idle(const int workCount, std::chrono::nanoseconds timeout = std::chrono::nanoseconds(0));
+	int idle(int workCount, std::chrono::nanoseconds timeout = std::chrono::nanoseconds(0));
 
 	/**
 	 * @brief Resets the idle strategy to its initial state.

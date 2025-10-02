@@ -24,13 +24,13 @@ public:
 	 * @brief Starts the Aeron Driver.
 	 * This method will block until the driver is stopped or an error occurs.
 	 */
-	void run();
+	void run() const;
 
 	/**
 	 * @brief Checks if the Aeron Driver is running.
 	 * @return true if the driver is running, false otherwise.
 	 */
-	bool isRunning() const;
+	[[nodiscard]] bool isRunning() const;
 
 	/**
 	 * @brief Stops the Aeron Driver.

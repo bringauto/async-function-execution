@@ -126,3 +126,13 @@ TEST_F(AsyncFunctionExecutorTests, ConfigForUndefinedFunction) {
 		std::make_unique<MockClient>()
 	), std::runtime_error);
 }
+
+
+/**
+ * @brief Tests calling a function with argument size over 2^16 bytes.
+ */
+TEST_F(AsyncFunctionExecutorTests, ArgumentTooLarge) {
+	// Create a very large string argument
+	std::string largeString(70000, 'A');
+	ASSERT_THROW(executorProducer.callFunc(FunctionReturnSameString, SerializableString{largeString}), std::invalid_argument);
+}

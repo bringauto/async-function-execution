@@ -6,7 +6,7 @@ using namespace bringauto::async_function_execution;
 struct SerializableString final {
 	std::string value {};
 	SerializableString() = default;
-	SerializableString(std::string str) : value(std::move(str)) {}
+	explicit SerializableString(std::string str) : value(std::move(str)) {}
 
 	std::span<const uint8_t> serialize() const {
 		return std::span {reinterpret_cast<const uint8_t *>(value.data()), value.size()};
@@ -44,7 +44,10 @@ int main() {
 		FunctionList { ExampleFunc1, ExampleFunc2, ExampleFunc3 },
 	};
 
-	executor.connect();
+	if (executor.connect() != 0) {
+		std::cerr << "Producer: Failed to connect to executor" << std::endl;
+		return 1;
+	}
 
 	auto result1 = executor.callFunc(ExampleFunc1, 42, "Hello", 3.14f);
 	std::cout << result1.value << std::endl;

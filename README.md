@@ -21,7 +21,7 @@ AsyncFunctionExecutor executorProducer {
 	Config {
 		.isProducer = true, // decides the mode of the executor
 		.defaultTimeout = std::chrono::seconds(1) // polling timeout (should only be used when producer)
-		.functionConfigurations = structures::FuntionConfigs { {
+		.functionConfigurations = structures::FunctionConfigs { {
 			{ 1, { std::chrono::seconds(2) }}
 		} }
 	},
@@ -36,7 +36,8 @@ AsyncFunctionExecutor executorProducer {
 Before using any functions, connection needs to be established using the connect function:
 
 ```cpp
-executorProducer.connect();
+// Returns -1 on a failed connection
+int rc = executorProducer.connect();
 ```
 
 #### functionConfigurations

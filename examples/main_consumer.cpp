@@ -8,7 +8,7 @@ using namespace bringauto::async_function_execution;
 struct SerializableString final {
 	std::string value {};
 	SerializableString() = default;
-	SerializableString(std::string str) : value(std::move(str)) {}
+	explicit SerializableString(std::string str) : value(std::move(str)) {}
 
 	std::span<const uint8_t> serialize() const {
 		return std::span {reinterpret_cast<const uint8_t *>(value.data()), value.size()};
@@ -45,8 +45,11 @@ int main() {
 		FunctionList { ExampleFunc1, ExampleFunc2, ExampleFunc3 },
 	};
 
-	executor.connect();
-	
+	if (executor.connect() != 0) {
+		std::cerr << "Consumer: Failed to connect to executor" << std::endl;
+		return 1;
+	}
+
 	while (true) {
 		auto [funcId, argBytes] = executor.pollFunction();
 		
@@ -54,20 +57,19 @@ int main() {
 			case 1: {
 				auto [arg1, arg2, arg3] = executor.getFunctionArgs(ExampleFunc1, argBytes);
 				std::cout << "Consumer: Received Function 1 call with args (" << arg1 << ", " << arg2.value << ", " << arg3 << ")." << std::endl;
-				executor.sendReturnMessage(funcId, "Func 1 return value");
+				executor.sendReturnMessage(funcId, SerializableString{"Func 1 return value"});
 				break;
 			}
 			case 2: {
 				auto [arg1, arg2] = executor.getFunctionArgs(ExampleFunc2, argBytes);
 				std::cout << "Consumer: Received Function 2 call with args (" << arg1 << ", " << arg2.value << ")." << std::endl;
-				executor.sendReturnMessage(funcId, "Func 2 return value");
+				executor.sendReturnMessage(funcId, SerializableString{"Func 2 return value"});
 				break;
 			}
 			case 3: {
 				auto [arg1] = executor.getFunctionArgs(ExampleFunc3, argBytes);
-				SerializableString returnValue { "Result for input " + std::to_string(arg1) };
 				std::cout << "Consumer: Received Function 3 call with args (" << arg1 << ")" << std::endl;
-				executor.sendReturnMessage(funcId, "Func 3 return value");
+				executor.sendReturnMessage(funcId, SerializableString{"Func 3 return value"});
 				break;
 			}
 			default:

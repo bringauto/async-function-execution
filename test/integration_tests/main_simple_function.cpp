@@ -62,8 +62,14 @@ int main() {
 		return -1;
 	}
 
-	executorProducer.connect();
-	executorConsumer.connect();
+	if (executorProducer.connect() != 0) {
+		std::cerr << "Producer: Failed to connect to executor" << std::endl;
+		return 1;
+	}
+	if (executorConsumer.connect() != 0) {
+		std::cerr << "Consumer: Failed to connect to executor" << std::endl;
+		return 1;
+	}
 	std::cout << "Both producer and consumer connected." << std::endl;
 
 	// Start consumer loop in a separate thread

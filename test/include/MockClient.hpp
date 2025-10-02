@@ -9,7 +9,7 @@
 
 
 
-class MockClient : public bringauto::async_function_execution::clients::ClientInterface {
+class MockClient final : public bringauto::async_function_execution::clients::ClientInterface {
 public:
 	MockClient() = default;
 	~MockClient() = default;
@@ -42,7 +42,7 @@ public:
 			return 0;
 		}
 
-		uint8_t funcId = messageBytes[0];
+		const uint8_t funcId = messageBytes[0];
 
 		if (funcId == 4) { // FunctionReturnSameString
 			auto stringArgs = deserializeStringRequest(messageBytes);
@@ -52,17 +52,17 @@ public:
 			return 0;
 		}
 
-		auto args = deserializeIntRequest(messageBytes);
+		const auto args = deserializeIntRequest(messageBytes);
 		switch (funcId) {
 			case 1: // FunctionAdd
 				if (args.size() == 3) {
-					int sum = args[0] + args[1] + args[2];
+					const int sum = args[0] + args[1] + args[2];
 					serializeIntResponse(funcId, sum);
 				}
 				break;
 			case 2: // FunctionMultiply
 				if (args.size() == 3) {
-					int product = args[0] * args[1] * args[2];
+					const int product = args[0] * args[1] * args[2];
 					serializeIntResponse(funcId, product);
 				}
 				break;
@@ -77,46 +77,46 @@ public:
 		return 0;
 	};
 
-	std::span<const uint8_t> waitForMessage(const uint32_t channelId, std::chrono::nanoseconds timeout) override {
+	std::span<const uint8_t> waitForMessage(const uint32_t channelId, const std::chrono::nanoseconds timeout) override {
 		// Test if the timeout is correctly set for each function
 		EXPECT_EQ((channelId - 1000) * 1000000, timeout.count());
 
 		if (messageBuffer_.empty()) {
 			return {};
 		}
-		return std::span<const uint8_t>(messageBuffer_.data(), messageBuffer_.size());
+		return {messageBuffer_.data(), messageBuffer_.size()};
 	}
 
 	/// Will always return a message for FunctionAdd with arguments (10, 20, 30)
 	std::span<const uint8_t> waitForAnyMessage() override {
 		messageBuffer_.clear();
 		messageBuffer_.reserve(2 + 3 * (2 + sizeof(int))); // Function ID + Arg count + 3 args (size + data)
-		messageBuffer_.push_back(static_cast<uint8_t>(1)); // Function ID
-		messageBuffer_.push_back(static_cast<uint8_t>(3)); // Argument count
+		messageBuffer_.push_back(1); // Function ID
+		messageBuffer_.push_back(3); // Argument count
 		int arg1 = 10;
 		int arg2 = 20;
 		int arg3 = 30;
-		messageBuffer_.push_back(static_cast<uint8_t>(sizeof(int) & 0xFF));
-		messageBuffer_.push_back(static_cast<uint8_t>((sizeof(int) >> 8) & 0xFF));
+		messageBuffer_.push_back(sizeof(int) & 0xFF);
+		messageBuffer_.push_back(sizeof(int) >> 8 & 0xFF);
 		messageBuffer_.insert(messageBuffer_.end(), reinterpret_cast<uint8_t*>(&arg1), reinterpret_cast<uint8_t*>(&arg1) + sizeof(int));
-		messageBuffer_.push_back(static_cast<uint8_t>(sizeof(int) & 0xFF));
-		messageBuffer_.push_back(static_cast<uint8_t>((sizeof(int) >> 8) & 0xFF));
+		messageBuffer_.push_back(sizeof(int) & 0xFF);
+		messageBuffer_.push_back(sizeof(int) >> 8 & 0xFF);
 		messageBuffer_.insert(messageBuffer_.end(), reinterpret_cast<uint8_t*>(&arg2), reinterpret_cast<uint8_t*>(&arg2) + sizeof(int));
-		messageBuffer_.push_back(static_cast<uint8_t>(sizeof(int) & 0xFF));
-		messageBuffer_.push_back(static_cast<uint8_t>((sizeof(int) >> 8) & 0xFF));
+		messageBuffer_.push_back(sizeof(int) & 0xFF);
+		messageBuffer_.push_back(sizeof(int) >> 8 & 0xFF);
 		messageBuffer_.insert(messageBuffer_.end(), reinterpret_cast<uint8_t*>(&arg3), reinterpret_cast<uint8_t*>(&arg3) + sizeof(int));
 		return {messageBuffer_.data(), messageBuffer_.size()};
 	}
 
 private:
 	/// Deserializes a request message into function ID and argument values the same way that AsyncFunctionExecutor does.
-	std::vector<int> deserializeIntRequest(std::span<const uint8_t> &bytes) {
+	std::vector<int> deserializeIntRequest(const std::span<const uint8_t> &bytes) {
 		size_t pos = 1;
-		uint8_t argCount = bytes[pos++];
+		const uint8_t argCount = bytes[pos++];
 		std::vector<int> args;
 
 		for (uint8_t i = 0; i < argCount; ++i) {
-			uint16_t argSize = bytes[pos] | (static_cast<uint16_t>(bytes[pos + 1]) << 8);
+			const uint16_t argSize = bytes[pos] | (static_cast<uint16_t>(bytes[pos + 1]) << 8);
 			pos += 2;
 			int argValue;
 			std::memcpy(&argValue, bytes.data() + pos, sizeof(int));
@@ -127,13 +127,13 @@ private:
 	}
 
 	/// Deserializes a request message with string arguments.
-	std::vector<std::string> deserializeStringRequest(std::span<const uint8_t> &bytes) {
+	std::vector<std::string> deserializeStringRequest(const std::span<const uint8_t> &bytes) {
 		size_t pos = 1;
-		uint8_t argCount = bytes[pos++];
+		const uint8_t argCount = bytes[pos++];
 		std::vector<std::string> args;
 
 		for (uint8_t i = 0; i < argCount; ++i) {
-			uint16_t argSize = bytes[pos] | (static_cast<uint16_t>(bytes[pos + 1]) << 8);
+			const uint16_t argSize = bytes[pos] | (static_cast<uint16_t>(bytes[pos + 1]) << 8);
 			pos += 2;
 			std::string argValue(reinterpret_cast<const char*>(bytes.data() + pos), argSize);
 			args.push_back(argValue);
@@ -143,25 +143,25 @@ private:
 	}
 
 	/// Serializes a response message the same way that AsyncFunctionExecutor does.
-	void serializeIntResponse(uint8_t funcId, int returnValue) {
+	void serializeIntResponse(const uint8_t funcId, const int returnValue) {
 		std::vector<uint8_t> buffer;
 		buffer.push_back(funcId);
-		buffer.push_back(static_cast<uint8_t>(sizeof(int)));
+		buffer.push_back(sizeof(int));
 		buffer.resize(3 + sizeof(int));
 		std::memcpy(buffer.data() + 3, &returnValue, sizeof(int));
 		messageBuffer_ = buffer;
 	}
 
 	/// Serializes a response message with a string return value.
-	void serializeStringResponse(uint8_t funcId, const std::string &data) {
+	void serializeStringResponse(const uint8_t funcId, const std::string &data) {
 		std::vector<uint8_t> buffer;
 		buffer.push_back(funcId);
 		if (data.size() > 65535) {
 			throw std::invalid_argument("Data too large to serialize in MockClient");
 		}
-		uint16_t size = static_cast<uint16_t>(data.size());
+		const auto size = static_cast<uint16_t>(data.size());
 		buffer.push_back(static_cast<uint8_t>(size & 0xFF));
-		buffer.push_back(static_cast<uint8_t>((size >> 8) & 0xFF));
+		buffer.push_back(static_cast<uint8_t>(size >> 8 & 0xFF));
 		buffer.insert(buffer.end(), data.begin(), data.end());
 		messageBuffer_ = buffer;
 	}

@@ -9,7 +9,7 @@ namespace baafe = bringauto::async_function_execution;
 struct SerializableString final {
 	std::string value {};
 	SerializableString() = default;
-	SerializableString(std::string str) : value(std::move(str)) {}
+	explicit SerializableString(std::string str) : value(std::move(str)) {}
 
 	std::span<const uint8_t> serialize() const {
 		return std::span {reinterpret_cast<const uint8_t *>(value.data()), value.size()};
@@ -36,7 +36,11 @@ baafe::AsyncFunctionExecutor executorConsumer {
 
 
 int main() {
-	executorConsumer.connect();
+	if (executorConsumer.connect() != 0) {
+		std::cerr << "Consumer: Failed to connect to executor" << std::endl;
+		return 1;
+	}
+
 	std::cout << "Consumer connected." << std::endl;
 
 	while (true) {

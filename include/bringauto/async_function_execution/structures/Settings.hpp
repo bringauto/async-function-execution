@@ -22,7 +22,7 @@ struct FunctionConfig {
 struct FunctionConfigs {
 	std::unordered_map<uint8_t, FunctionConfig> configs;
 	FunctionConfigs() = default;
-	FunctionConfigs(std::unordered_map<uint8_t, FunctionConfig> configs) : configs(std::move(configs)) {};
+	explicit FunctionConfigs(std::unordered_map<uint8_t, FunctionConfig> configs) : configs(std::move(configs)) {};
 };
 
 /**
@@ -37,7 +37,7 @@ struct Settings {
 	const std::chrono::nanoseconds defaultTimeout = std::chrono::nanoseconds(0);
 	FunctionConfigs functionConfigs;
 
-	Settings(bool isProducer, std::chrono::nanoseconds defaultTimeout,
+	Settings(const bool isProducer, const std::chrono::nanoseconds defaultTimeout,
 			 const FunctionConfigs& functionConfigs = {})
 			: isProducer(isProducer), defaultTimeout(defaultTimeout), functionConfigs(functionConfigs) {}
 };

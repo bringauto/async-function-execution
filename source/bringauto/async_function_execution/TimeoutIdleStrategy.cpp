@@ -1,5 +1,9 @@
 #include <bringauto/async_function_execution/TimeoutIdleStrategy.hpp>
 
+#include <concurrent/Atomic64.h>
+
+#include <thread>
+
 
 
 namespace bringauto::async_function_execution {

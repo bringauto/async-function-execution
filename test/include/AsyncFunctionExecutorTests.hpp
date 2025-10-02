@@ -12,7 +12,7 @@ namespace baafe = bringauto::async_function_execution;
 struct SerializableString final {
 	std::string value {};
 	SerializableString() = default;
-	SerializableString(std::string str) : value(std::move(str)) {}
+	explicit SerializableString(std::string str) : value(std::move(str)) {}
 
 	std::span<const uint8_t> serialize() const {
 		return std::span {reinterpret_cast<const uint8_t *>(value.data()), value.size()};
