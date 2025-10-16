@@ -7,6 +7,7 @@
 #include <utility>
 #include <stdexcept>
 #include <iostream>
+#include <expected>
 
 
 
@@ -127,6 +128,19 @@ FunctionList(Funcs&&...) -> FunctionList<std::decay_t<Funcs>...>;
 
 
 /**
+ * @brief Enum class representing possible error states during function calls.
+ */
+enum class CallError {
+	InvalidExecutorType,
+	FunctionIdNotDefined,
+	ArgumentCountMismatch,
+	TimeoutOrNoResponse,
+	FunctionIdMismatch,
+	FunctionCallInProgress
+};
+
+
+/**
  * @brief This class provides a high-level interface for async communication, allowing function calls over shared memory
  * with serialization and deserialization.
  */
@@ -176,6 +190,7 @@ public:
 		std::apply([&](const auto&... funcDefs) {
 			(toProducer.push_back(funcDefs.id.value + MESSAGE_RETURN_CHANNEL_OFFSET), ...);
 			(fromProducer.push_back(funcDefs.id.value), ...);
+			(callInProgress_.emplace(funcDefs.id.value, false), ...);
 		}, functions_.functions);
 
 		if (settings_.isProducer) {
@@ -187,25 +202,29 @@ public:
 
 	/**
 	 * @brief Calls a function defined in the FunctionList, sending arguments and waiting for a response.
-	 * Can only be used in producer mode. Throws on error.
+	 * Can only be used in producer mode.
 	 * 
 	 * @param function The function definition of which function to call.
 	 * @param args The arguments to pass to the function.
 	 * @return The return value of the function. If the return type contains some byte buffer,
-	 * the memory is valid until the next call to callFunc().
+	 * the memory is valid until the next call to callFunc(). On error, returns a CallError enum value.
 	 */
 	template <typename Ret, typename... FArgs, typename... CallArgs>
-	Ret callFunc(const FunctionDefinition<Ret, FArgs...> &function, CallArgs&&... args) {
+	auto callFunc(const FunctionDefinition<Ret, FArgs...> &function, CallArgs&&... args) -> std::expected<Ret, CallError> {
 		if (!settings_.isProducer) {
-			throw std::runtime_error("Cannot call function in consumer mode");
+			return std::unexpected(CallError::InvalidExecutorType);
 		}
 		if (sizeof...(CallArgs) < sizeof...(FArgs)) {
-			throw std::invalid_argument("Argument count mismatch");
+			return std::unexpected(CallError::ArgumentCountMismatch);
 		}
 		if (!isFunctionDefined(function.id)) {
-			throw std::runtime_error("Function ID not defined");
+			return std::unexpected(CallError::FunctionIdNotDefined);
 		}
-
+		if (callInProgress_[function.id.value].load()) {
+			return std::unexpected(CallError::FunctionCallInProgress);
+		}
+		
+		callInProgress_[function.id.value].store(true);
 		auto messageBytes = serializeArgs(function.id, args...);
 		client_->sendMessage(function.id.value, messageBytes);
 
@@ -215,13 +234,14 @@ public:
 													 settings_.defaultTimeout
 		);
 		if (responseBytes.empty()) {
-			throw std::runtime_error("No response received or timeout");
+			return std::unexpected(CallError::TimeoutOrNoResponse);
 		}
-		
-		Ret response = deserializeReturn<Ret>(function.id, responseBytes);
+
+		auto response = deserializeReturn<Ret>(function.id, responseBytes);
+		callInProgress_[function.id.value].store(false);
 
 		if constexpr (std::is_same_v<Ret, void>) {
-			return;
+			return {};
 		} else {
 			return response;
 		}
@@ -382,18 +402,22 @@ private:
 
 
 	template<typename T>
-	T deserializeReturn(const FunctionId &funcId, const std::span<const uint8_t>& bytes) {
+	auto deserializeReturn(const FunctionId &funcId, const std::span<const uint8_t>& bytes) -> std::expected<T, CallError> {
 		if(funcId.value != bytes[0]) {
-			throw std::invalid_argument("Function ID mismatch in return value");
+			return std::unexpected(CallError::FunctionIdMismatch);
 		}
-		
-		T value;
-		if constexpr (HasSerialize<T>) {
-			value.deserialize(std::span {bytes.data() + 3, bytes.size() - 3});
+
+		if constexpr (std::is_same_v<T, void>) {
+			return {};
 		} else {
-			std::memcpy(&value, bytes.data() + 3, sizeof(T));
+			T value;
+			if constexpr (HasSerialize<T>) {
+				value.deserialize(std::span {bytes.data() + 3, bytes.size() - 3});
+			} else {
+				std::memcpy(&value, bytes.data() + 3, sizeof(T));
+			}
+			return value;
 		}
-		return value;
 	}
 
 
@@ -413,6 +437,8 @@ private:
 	std::unique_ptr<clients::ClientInterface> client_;
 	structures::Settings settings_;
 	FunctionList<Funcs...> functions_;
+	/// Map to track if a function call is in progress for a given function ID.
+	std::unordered_map<uint8_t, std::atomic_bool> callInProgress_{};
 };
 
 }

@@ -61,7 +61,7 @@ int main() {
 	std::cin.get();
 
 	// Producer calls Function
-	SerializableString ret = executorProducer.callFunc(Function, SerializableString{"Hello, World!"});
+	SerializableString ret = executorProducer.callFunc(Function, SerializableString{"Hello, World!"}).value();
 
 	// Short delay while a segfault is forced in the consumer
 	std::this_thread::sleep_for(std::chrono::seconds(1));

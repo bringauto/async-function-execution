@@ -1,7 +1,7 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 3.25)
 PROJECT(async-function-execution)
 
-SET(CMAKE_CXX_STANDARD 20)
+SET(CMAKE_CXX_STANDARD 23)
 
 IF(NOT TARGET async-function-execution-shared)
     MESSAGE(FATAL_ERROR "The async-function-execution-shared target was not found. Please build the tests as part of the async-function-execution-shared project.")

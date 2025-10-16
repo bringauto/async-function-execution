@@ -52,6 +52,12 @@ baafe::FunctionDefinition FunctionNoArgs {
 	baafe::Arguments { }
 };
 
+baafe::FunctionDefinition FunctionWait {
+	baafe::FunctionId { 6 },
+	baafe::Return<void> { },
+	baafe::Arguments { }
+};
+
 baafe::AsyncFunctionExecutor executorProducer {
 	baafe::Config {
 		.isProducer = true,
@@ -61,7 +67,8 @@ baafe::AsyncFunctionExecutor executorProducer {
 			{ 2, { std::chrono::nanoseconds(2000000) } },
 			{ 3, { std::chrono::nanoseconds(3000000) } },
 			{ 4, { std::chrono::nanoseconds(4000000) } },
-			{ 5, { std::chrono::nanoseconds(5000000) } }
+			{ 5, { std::chrono::nanoseconds(5000000) } },
+			{ 6, { std::chrono::nanoseconds(6000000) } }
 		} }
 	},
 	baafe::FunctionList {
@@ -69,7 +76,8 @@ baafe::AsyncFunctionExecutor executorProducer {
 		FunctionMultiply,
 		FunctionReturnSame,
 		FunctionReturnSameString,
-		FunctionNoArgs
+		FunctionNoArgs,
+		FunctionWait
 	},
 	std::make_unique<MockClient>()
 };

@@ -77,7 +77,7 @@ int main() {
 	std::this_thread::sleep_for(std::chrono::seconds(1)); // Give consumer a moment to start
 
 	// Producer calls FunctionAdd
-	int sum = executorProducer.callFunc(FunctionAdd, 10, 20, 30);
+	int sum = executorProducer.callFunc(FunctionAdd, 10, 20, 30).value();
 	std::cout << "Producer: FunctionAdd(10, 20, 30) returned: " << sum << std::endl;
 	if (sum != 60) {
 		std::cerr << "Unexpected sum result!" << std::endl;

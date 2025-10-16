@@ -49,11 +49,11 @@ int main() {
 		return 1;
 	}
 
-	auto result1 = executor.callFunc(ExampleFunc1, 42, "Hello", 3.14f);
+	auto result1 = executor.callFunc(ExampleFunc1, 42, "Hello", 3.14f).value();
 	std::cout << result1.value << std::endl;
-	auto result2 = executor.callFunc(ExampleFunc2, 100, "World");
+	auto result2 = executor.callFunc(ExampleFunc2, 100, "World").value();
 	std::cout << result2.value << std::endl;
-	auto result3 = executor.callFunc(ExampleFunc3, 123);
+	auto result3 = executor.callFunc(ExampleFunc3, 123).value();
 	std::cout << result3.value << std::endl;
 	return 0;
 }
