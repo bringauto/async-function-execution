@@ -151,4 +151,5 @@ TEST_F(AsyncFunctionExecutorTests, FunctionCallInProgress) {
 	// Now, calling FunctionWait again should return FunctionCallInProgress error
 	EXPECT_EQ(executorProducer.callFunc(FunctionWait).error(), baafe::CallError::FunctionCallInProgress);
 	waitThread.join();
+	ASSERT_NE(executorProducer.callFunc(FunctionWait).error(), baafe::CallError::FunctionCallInProgress);
 }

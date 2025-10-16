@@ -52,8 +52,9 @@ public:
 			return 0;
 		}
 
-		if (funcId == 6) { // FunctionWait does not expect a response
-			messageBuffer_.clear();
+		if (funcId == 6) { // FunctionWait
+			std::this_thread::sleep_for(std::chrono::milliseconds(200));
+			serializeVoidResponse(funcId);
 			return 0;
 		}
 
@@ -85,13 +86,6 @@ public:
 	std::span<const uint8_t> waitForMessage(const uint32_t channelId, const std::chrono::nanoseconds timeout) override {
 		// Test if the timeout is correctly set for each function
 		EXPECT_EQ((channelId - 1000) * 1000000, timeout.count());
-
-		if (channelId == 6) {
-			// Simulate a long wait for FunctionWait
-			std::this_thread::sleep_for(std::chrono::milliseconds(200));
-			messageBuffer_.clear(); // No message to return
-			return {};
-		}
 
 		if (messageBuffer_.empty()) {
 			return {};
@@ -178,6 +172,12 @@ private:
 		messageBuffer_ = buffer;
 	}
 
+	/// Serializes a response message for a void return type.
+	void serializeVoidResponse(const uint8_t funcId) {
+		std::vector<uint8_t> buffer;
+		buffer.push_back(funcId);
+		messageBuffer_ = buffer;
+	}
 
 	std::vector<uint8_t> messageBuffer_;
 };

@@ -224,7 +224,7 @@ public:
 			return std::unexpected(CallError::FunctionCallInProgress);
 		}
 		
-		callInProgress_[function.id.value].store(true);
+		callInProgress_[function.id.value] = true;
 		auto messageBytes = serializeArgs(function.id, args...);
 		client_->sendMessage(function.id.value, messageBytes);
 
@@ -234,17 +234,13 @@ public:
 													 settings_.defaultTimeout
 		);
 		if (responseBytes.empty()) {
+			callInProgress_[function.id.value] = false;
 			return std::unexpected(CallError::TimeoutOrNoResponse);
 		}
 
 		auto response = deserializeReturn<Ret>(function.id, responseBytes);
-		callInProgress_[function.id.value].store(false);
-
-		if constexpr (std::is_same_v<Ret, void>) {
-			return {};
-		} else {
-			return response;
-		}
+		callInProgress_[function.id.value] = false;
+		return response;
 	}
 
 
@@ -408,7 +404,7 @@ private:
 		}
 
 		if constexpr (std::is_same_v<T, void>) {
-			return {};
+			return std::expected<void, CallError>{};
 		} else {
 			T value;
 			if constexpr (HasSerialize<T>) {
