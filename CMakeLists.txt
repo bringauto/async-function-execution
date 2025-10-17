@@ -51,7 +51,7 @@ CMDEF_ADD_LIBRARY(
 
 TARGET_LINK_LIBRARIES(${ASYNC_FUNCTION_EXECUTION_TARGET_NAME}-shared PUBLIC
     aeron::aeron
-    aeron::aeron_client
+    aeron::aeron_client_shared
     aeron::aeron_driver
 )
 
