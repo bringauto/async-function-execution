@@ -20,9 +20,30 @@ struct FunctionConfig {
  * configs: Map of FunctionId to FunctionConfig.
  */
 struct FunctionConfigs {
-	std::unordered_map<uint8_t, FunctionConfig> configs;
 	FunctionConfigs() = default;
 	explicit FunctionConfigs(std::unordered_map<uint8_t, FunctionConfig> configs) : configs(std::move(configs)) {};
+
+	FunctionConfig getConfig(const uint8_t functionId) const {
+		if (configs.find(functionId) != configs.end()) {
+			return configs.at(functionId);
+		}
+		return FunctionConfig{};
+	}
+
+	void setConfig(const uint8_t functionId, const FunctionConfig& config) {
+		configs[functionId] = config;
+	}
+
+	std::vector<uint8_t> getFunctionIds() const {
+		std::vector<uint8_t> functionIds;
+		for (const auto& [funcId, _] : configs) {
+			functionIds.push_back(funcId);
+		}
+		return functionIds;
+	}
+
+	private:
+		std::unordered_map<uint8_t, FunctionConfig> configs;
 };
 
 /**

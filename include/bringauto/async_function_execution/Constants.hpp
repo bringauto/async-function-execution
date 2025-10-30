@@ -15,5 +15,8 @@ constexpr int MAX_ARGUMENT_SIZE = 65535;
 
 /// Default Aeron connection string for communication over shared memory.
 constexpr std::string_view DEFAULT_AERON_CONNECTION = "aeron:ipc";
-	
+
+/// Timeout duration for establishing stream connections.
+constexpr std::chrono::milliseconds STREAM_CONNECTION_TIMEOUT = std::chrono::milliseconds(5000);
+
 }

@@ -53,7 +53,8 @@ public:
 		}
 
 		if (funcId == 6) { // FunctionWait
-			std::this_thread::sleep_for(std::chrono::milliseconds(200));
+			// 250 ms because the test waits for 200 ms before checking call in progress
+			std::this_thread::sleep_for(std::chrono::milliseconds(250));
 			serializeVoidResponse(funcId);
 			return 0;
 		}

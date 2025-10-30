@@ -147,7 +147,8 @@ TEST_F(AsyncFunctionExecutorTests, FunctionCallInProgress) {
 		executorProducer.callFunc(FunctionWait);
 	});
 	// Give the thread a moment to start and set the callInProgress flag
-	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	// 200 ms is chosen to account for worst case scenario thread creation time plus some extra time for function execution
+	std::this_thread::sleep_for(std::chrono::milliseconds(200));
 	// Now, calling FunctionWait again should return FunctionCallInProgress error
 	EXPECT_EQ(executorProducer.callFunc(FunctionWait).error(), baafe::CallError::FunctionCallInProgress);
 	waitThread.join();

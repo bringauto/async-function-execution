@@ -63,12 +63,12 @@ baafe::AsyncFunctionExecutor executorProducer {
 		.isProducer = true,
 		.defaultTimeout = std::chrono::seconds(1),
 		.functionConfigurations = baafe::structures::FunctionConfigs { {
-			{ 1, { std::chrono::nanoseconds(1000000) } },
-			{ 2, { std::chrono::nanoseconds(2000000) } },
-			{ 3, { std::chrono::nanoseconds(3000000) } },
-			{ 4, { std::chrono::nanoseconds(4000000) } },
-			{ 5, { std::chrono::nanoseconds(5000000) } },
-			{ 6, { std::chrono::nanoseconds(6000000) } }
+			{ FunctionAdd.id.value,              { std::chrono::nanoseconds(1000000) } },
+			{ FunctionMultiply.id.value,         { std::chrono::nanoseconds(2000000) } },
+			{ FunctionReturnSame.id.value,       { std::chrono::nanoseconds(3000000) } },
+			{ FunctionReturnSameString.id.value, { std::chrono::nanoseconds(4000000) } },
+			{ FunctionNoArgs.id.value,           { std::chrono::nanoseconds(5000000) } },
+			{ FunctionWait.id.value,             { std::chrono::nanoseconds(6000000) } }
 		} }
 	},
 	baafe::FunctionList {

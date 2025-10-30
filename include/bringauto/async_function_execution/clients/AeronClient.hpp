@@ -70,7 +70,7 @@ public:
 			for (const auto &pubId : publicationIds) {
 				id = aeron_->addPublication(aeronConnection_, pubId);
 				std::shared_ptr<aeron::Publication> publication = aeron_->findPublication(id);
-				const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+				const auto deadline = std::chrono::steady_clock::now() + STREAM_CONNECTION_TIMEOUT;
 				while (!publication) {
 					if (std::chrono::steady_clock::now() > deadline) {
 						std::cerr << "Aeron connection error: Timeout while waiting for publication" << std::endl;
@@ -85,7 +85,7 @@ public:
 			for (const auto &subId : subscriptionIds) {
 				id = aeron_->addSubscription(aeronConnection_, subId);
 				std::shared_ptr<aeron::Subscription> subscription = aeron_->findSubscription(id);
-				const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+				const auto deadline = std::chrono::steady_clock::now() + STREAM_CONNECTION_TIMEOUT;
 				while (!subscription) {
 					if (std::chrono::steady_clock::now() > deadline) {
 						std::cerr << "Aeron connection error: Timeout while waiting for subscription" << std::endl;

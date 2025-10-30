@@ -121,22 +121,15 @@ struct FunctionList {
 
 
 /**
- * @brief Deduction guide for FunctionList to simplify its construction.
- */
-template<typename... Funcs>
-FunctionList(Funcs&&...) -> FunctionList<std::decay_t<Funcs>...>;
-
-
-/**
  * @brief Enum class representing possible error states during function calls.
  */
 enum class CallError {
-	InvalidExecutorType,
-	FunctionIdNotDefined,
-	ArgumentCountMismatch,
-	TimeoutOrNoResponse,
-	FunctionIdMismatch,
-	FunctionCallInProgress
+	InvalidExecutorType,   // Called a producer-only function in consumer mode or vice versa
+	FunctionIdNotDefined,  // Function ID is not defined in the FunctionList
+	ArgumentCountMismatch, // Number of expected arguments does not match
+	TimeoutOrNoResponse,   // No response received within the timeout
+	FunctionIdMismatch,    // Function ID does not match
+	FunctionCallInProgress // Function call is already in progress
 };
 
 
@@ -167,7 +160,7 @@ public:
 			);
 		}
 
-		for (const auto &funcId: settings_.functionConfigs.configs | std::views::keys) {
+		for (const auto &funcId: settings_.functionConfigs.getFunctionIds()) {
 			if (!isFunctionDefined(FunctionId{funcId})) {
 				throw std::runtime_error("Warning: Function ID " + std::to_string(funcId) + " in configuration is not defined in FunctionList.");
 			}
@@ -228,11 +221,10 @@ public:
 		auto messageBytes = serializeArgs(function.id, args...);
 		client_->sendMessage(function.id.value, messageBytes);
 
+		auto timeout = settings_.functionConfigs.getConfig(function.id.value).timeout;
 		auto responseBytes = client_->waitForMessage(function.id.value + MESSAGE_RETURN_CHANNEL_OFFSET,
-													 settings_.functionConfigs.configs.contains(function.id.value) ?
-													 settings_.functionConfigs.configs[function.id.value].timeout :
-													 settings_.defaultTimeout
-		);
+													 timeout == std::chrono::nanoseconds(0) ? settings_.defaultTimeout : timeout);
+
 		if (responseBytes.empty()) {
 			callInProgress_[function.id.value] = false;
 			return std::unexpected(CallError::TimeoutOrNoResponse);

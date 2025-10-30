@@ -18,20 +18,24 @@ struct SerializableString final {
 	}
 };
 
+constexpr int ExampleFunc1Id = 1;
+constexpr int ExampleFunc2Id = 2;
+constexpr int ExampleFunc3Id = 3;
+
 FunctionDefinition ExampleFunc1 {
-	FunctionId { 1 },
+	FunctionId { ExampleFunc1Id },
 	Return { SerializableString {} },
 	Arguments { int {}, SerializableString {}, float {} }
 };
 
 FunctionDefinition ExampleFunc2 {
-	FunctionId { 2 },
+	FunctionId { ExampleFunc2Id },
 	Return { SerializableString {} },
 	Arguments { int {}, SerializableString {} }
 };
 
 FunctionDefinition ExampleFunc3 {
-	FunctionId { 3 },
+	FunctionId { ExampleFunc3Id },
 	Return { SerializableString {} },
 	Arguments { int {} }
 };
@@ -54,19 +58,19 @@ int main() {
 		auto [funcId, argBytes] = executor.pollFunction();
 		
 		switch (funcId.value) {
-			case 1: {
+			case ExampleFunc1Id: {
 				auto [arg1, arg2, arg3] = executor.getFunctionArgs(ExampleFunc1, argBytes);
 				std::cout << "Consumer: Received Function 1 call with args (" << arg1 << ", " << arg2.value << ", " << arg3 << ")." << std::endl;
 				executor.sendReturnMessage(funcId, SerializableString{"Func 1 return value"});
 				break;
 			}
-			case 2: {
+			case ExampleFunc2Id: {
 				auto [arg1, arg2] = executor.getFunctionArgs(ExampleFunc2, argBytes);
 				std::cout << "Consumer: Received Function 2 call with args (" << arg1 << ", " << arg2.value << ")." << std::endl;
 				executor.sendReturnMessage(funcId, SerializableString{"Func 2 return value"});
 				break;
 			}
-			case 3: {
+			case ExampleFunc3Id: {
 				auto [arg1] = executor.getFunctionArgs(ExampleFunc3, argBytes);
 				std::cout << "Consumer: Received Function 3 call with args (" << arg1 << ")" << std::endl;
 				executor.sendReturnMessage(funcId, SerializableString{"Func 3 return value"});
