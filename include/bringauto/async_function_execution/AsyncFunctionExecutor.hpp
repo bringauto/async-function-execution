@@ -178,20 +178,20 @@ public:
 	 * 
 	 * @return Returns 0 on success, or a negative error code on failure.
 	 */
-	int connect(uint32_t channelOffset = 0) {
+	int connect(const uint32_t channelOffset = 0) {
 		if (channelOffset > (UINT32_MAX / (MESSAGE_RETURN_CHANNEL_OFFSET * 10))) {
 			std::cerr << "Channel offset too large" << std::endl;
 			return -1; // Error: Channel offset too large
 		}
-		channelOffset = channelOffset * (MESSAGE_RETURN_CHANNEL_OFFSET * 10);
+		channelOffset_ = channelOffset * (MESSAGE_RETURN_CHANNEL_OFFSET * 10);
 
 		std::vector<uint32_t> toProducer;
 		std::vector<uint32_t> fromProducer;
 
 		std::apply([&](const auto&... funcDefs) {
-			(toProducer.push_back(funcDefs.id.value + channelOffset + MESSAGE_RETURN_CHANNEL_OFFSET), ...);
-			(fromProducer.push_back(funcDefs.id.value + channelOffset), ...);
-			(callInProgress_.emplace(funcDefs.id.value + channelOffset, false), ...);
+			(toProducer.push_back(funcDefs.id.value + channelOffset_ + MESSAGE_RETURN_CHANNEL_OFFSET), ...);
+			(fromProducer.push_back(funcDefs.id.value + channelOffset_), ...);
+			(callInProgress_.emplace(funcDefs.id.value + channelOffset_, false), ...);
 		}, functions_.functions);
 
 		if (settings_.isProducer) {
@@ -227,10 +227,10 @@ public:
 		
 		callInProgress_[function.id.value] = true;
 		auto messageBytes = serializeArgs(function.id, args...);
-		client_->sendMessage(function.id.value, messageBytes);
+		client_->sendMessage(function.id.value + channelOffset_, messageBytes);
 
 		auto timeout = settings_.functionConfigs.getConfig(function.id.value).timeout;
-		auto responseBytes = client_->waitForMessage(function.id.value + MESSAGE_RETURN_CHANNEL_OFFSET,
+		auto responseBytes = client_->waitForMessage(function.id.value + channelOffset_ + MESSAGE_RETURN_CHANNEL_OFFSET,
 													 timeout == std::chrono::nanoseconds(0) ? settings_.defaultTimeout : timeout);
 
 		if (responseBytes.empty()) {
@@ -340,7 +340,7 @@ public:
 		}
 
 		auto messageBytes = serializeReturn(functionId, returnValue);
-		return client_->sendMessage(functionId.value + MESSAGE_RETURN_CHANNEL_OFFSET, messageBytes);
+		return client_->sendMessage(functionId.value + channelOffset_ + MESSAGE_RETURN_CHANNEL_OFFSET, messageBytes);
 	}
 
 private:
@@ -435,6 +435,8 @@ private:
 	FunctionList<Funcs...> functions_;
 	/// Map to track if a function call is in progress for a given function ID.
 	std::unordered_map<uint8_t, std::atomic_bool> callInProgress_{};
+	/// Channel ID offset to apply to all function channel IDs.
+	uint32_t channelOffset_ {};
 };
 
 }
