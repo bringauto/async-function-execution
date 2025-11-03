@@ -173,17 +173,25 @@ public:
 	/**
 	 * @brief Connects the client to the media driver and sets up communication channels.
 	 * Needs to be called before any function calls or polling.
+	 * @param channelOffset Optional offset to add to all function channel IDs. Default is 0.
+	 * Use this when multiple executors are used in the same process to avoid channel ID conflicts.
 	 * 
 	 * @return Returns 0 on success, or a negative error code on failure.
 	 */
-	int connect() {
+	int connect(uint32_t channelOffset = 0) {
+		if (channelOffset > (UINT32_MAX / (MESSAGE_RETURN_CHANNEL_OFFSET * 10))) {
+			std::cerr << "Channel offset too large" << std::endl;
+			return -1; // Error: Channel offset too large
+		}
+		channelOffset = channelOffset * (MESSAGE_RETURN_CHANNEL_OFFSET * 10);
+
 		std::vector<uint32_t> toProducer;
 		std::vector<uint32_t> fromProducer;
 
 		std::apply([&](const auto&... funcDefs) {
-			(toProducer.push_back(funcDefs.id.value + MESSAGE_RETURN_CHANNEL_OFFSET), ...);
-			(fromProducer.push_back(funcDefs.id.value), ...);
-			(callInProgress_.emplace(funcDefs.id.value, false), ...);
+			(toProducer.push_back(funcDefs.id.value + channelOffset + MESSAGE_RETURN_CHANNEL_OFFSET), ...);
+			(fromProducer.push_back(funcDefs.id.value + channelOffset), ...);
+			(callInProgress_.emplace(funcDefs.id.value + channelOffset, false), ...);
 		}, functions_.functions);
 
 		if (settings_.isProducer) {

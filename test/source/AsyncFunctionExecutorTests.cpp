@@ -154,3 +154,30 @@ TEST_F(AsyncFunctionExecutorTests, FunctionCallInProgress) {
 	waitThread.join();
 	ASSERT_NE(executorProducer.callFunc(FunctionWait).error(), baafe::CallError::FunctionCallInProgress);
 }
+
+/**
+ * @brief Tests the connect function with different channel offsets.
+ */
+TEST(AsyncFunctionExecutorTestsStandalone, ConnectTest) {
+	baafe::AsyncFunctionExecutor executor1 {
+		baafe::Config {
+			.isProducer = true
+		},
+		baafe::FunctionList { },
+		std::make_unique<MockClient>()
+	};
+	baafe::AsyncFunctionExecutor executor2 {
+		baafe::Config {
+			.isProducer = false
+		},
+		baafe::FunctionList { },
+		std::make_unique<MockClient>()
+	};
+
+	// Try a valid channel offset
+	int ret = executor1.connect(5);
+	ASSERT_EQ(ret, 0);
+	// Try an invalid channel offset
+	ret = executor2.connect(40000000);
+	ASSERT_EQ(ret, -1);
+}
