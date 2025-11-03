@@ -191,7 +191,7 @@ public:
 		std::apply([&](const auto&... funcDefs) {
 			(toProducer.push_back(funcDefs.id.value + channelOffset_ + MESSAGE_RETURN_CHANNEL_OFFSET), ...);
 			(fromProducer.push_back(funcDefs.id.value + channelOffset_), ...);
-			(callInProgress_.emplace(funcDefs.id.value + channelOffset_, false), ...);
+			(callInProgress_.emplace(funcDefs.id.value, false), ...);
 		}, functions_.functions);
 
 		if (settings_.isProducer) {

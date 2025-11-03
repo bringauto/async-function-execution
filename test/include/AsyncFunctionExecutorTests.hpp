@@ -100,8 +100,9 @@ baafe::AsyncFunctionExecutor executorConsumer {
 class AsyncFunctionExecutorTests : public ::testing::Test {
 protected:
 	static void SetUpTestSuite() {
-		executorProducer.connect();
-		executorConsumer.connect();
+		// Connect both executors with an arbitrary channel offset of 42
+		executorProducer.connect(42);
+		executorConsumer.connect(42);
 	}
 
 	void SetUp() override {}

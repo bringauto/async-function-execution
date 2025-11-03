@@ -20,14 +20,14 @@ public:
 	}
 
 	int sendMessage(const uint32_t channelId, std::span<const uint8_t> &messageBytes) override {
-		if (channelId > 1000) {
+		if (channelId > 421000) {
 			// Validate that this is a return message
 			if (messageBytes.size() != 3 + sizeof(int)) {
 				std::cerr << "Invalid return message size: " << messageBytes.size() << std::endl;
 				return -1; // Error: Invalid return message size
 			}
 
-			if (messageBytes[0] != static_cast<uint8_t>(channelId - 1000) || messageBytes[1] != sizeof(int)) {
+			if (messageBytes[0] != static_cast<uint8_t>(channelId - 421000) || messageBytes[1] != sizeof(int)) {
 				std::cerr << "Invalid return message format." << std::endl;
 				return -2; // Error: Invalid return message format
 			}
@@ -86,7 +86,7 @@ public:
 
 	std::span<const uint8_t> waitForMessage(const uint32_t channelId, const std::chrono::nanoseconds timeout) override {
 		// Test if the timeout is correctly set for each function
-		EXPECT_EQ((channelId - 1000) * 1000000, timeout.count());
+		EXPECT_EQ((channelId - 421000) * 1000000, timeout.count());
 
 		if (messageBuffer_.empty()) {
 			return {};
