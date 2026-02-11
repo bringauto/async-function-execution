@@ -6,13 +6,13 @@
 
 static bringauto::async_function_execution::AeronDriver* globalDriverInstance = nullptr;
 
-void terminationHook(void *state) {
+static void terminationHook(void *state) {
 	if (globalDriverInstance != nullptr) {
 		globalDriverInstance->stop();
 	}
 }
 
-void signalHandler(int signal) {
+static void signalHandler(int signal) {
 	if (globalDriverInstance != nullptr) {
 		globalDriverInstance->stop();	
 	}
@@ -31,6 +31,12 @@ AeronDriver::AeronDriver() {
 	driverContext_->agent_on_start_state_delegate = driverContext_->agent_on_start_state;
 	aeron_driver_context_set_agent_on_start_function(driverContext_, aeron_set_thread_affinity_on_start, driverContext_);
 	aeron_driver_init(&driver_, driverContext_);
+}
+
+
+AeronDriver::~AeronDriver() {
+	aeron_driver_close(driver_);
+	aeron_driver_context_close(driverContext_);
 }
 
 

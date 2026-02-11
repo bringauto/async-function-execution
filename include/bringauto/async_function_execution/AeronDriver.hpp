@@ -18,7 +18,11 @@ public:
 	 */
 	AeronDriver();
 
-	~AeronDriver() = default;
+	/**
+	 * @brief Destructs Aeron Driver.
+	 * Ensures that the driver is stopped and resources are released.
+	 */
+	~AeronDriver();
 
 	/**
 	 * @brief Starts the Aeron Driver.

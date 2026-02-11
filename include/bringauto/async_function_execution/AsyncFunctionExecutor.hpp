@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <expected>
+#include <unordered_map>
 
 
 
@@ -183,6 +184,7 @@ public:
 			std::cerr << "Channel offset too large" << std::endl;
 			return -1; // Error: Channel offset too large
 		}
+		// multiplied by 10 because channel offset needs to be one order of magnitude larger than the return channel offset to avoid conflicts
 		channelOffset_ = channelOffset * (MESSAGE_RETURN_CHANNEL_OFFSET * 10);
 
 		std::vector<uint32_t> toProducer;
@@ -354,25 +356,25 @@ private:
 
 	template<typename... Args>
 	std::span<const uint8_t> serializeArgs(const FunctionId &funcId, const Args&... args) {
-		serializationBuffer_.clear();
+		serializationBuffers_[funcId.value].clear();
 		std::size_t totalSize = 2; // Function ID + Argument count
 		((totalSize += 2 + sizeof(args)), ...); // Each argument: size bytes + data
-		serializationBuffer_.reserve(totalSize);
-		serializationBuffer_.push_back(funcId.value);
-		serializationBuffer_.push_back(static_cast<uint8_t>(sizeof...(Args)));
-		(appendArg(serializationBuffer_, args), ...);
-		return {serializationBuffer_.data(), serializationBuffer_.size()};
+		serializationBuffers_[funcId.value].reserve(totalSize);
+		serializationBuffers_[funcId.value].push_back(funcId.value);
+		serializationBuffers_[funcId.value].push_back(static_cast<uint8_t>(sizeof...(Args)));
+		(appendArg(serializationBuffers_[funcId.value], args), ...);
+		return {serializationBuffers_[funcId.value].data(), serializationBuffers_[funcId.value].size()};
 	}
 
 
 	template<typename T>
 	std::span<const uint8_t> serializeReturn(const FunctionId &funcId, const T &returnValue) {
-		serializationBuffer_.clear();
+		serializationBuffers_[funcId.value].clear();
 		const std::size_t totalSize = 3 + sizeof(returnValue);
-		serializationBuffer_.reserve(totalSize);
-		serializationBuffer_.push_back(funcId.value);
-		appendArg(serializationBuffer_, returnValue);
-		return {serializationBuffer_.data(), serializationBuffer_.size()};
+		serializationBuffers_[funcId.value].reserve(totalSize);
+		serializationBuffers_[funcId.value].push_back(funcId.value);
+		appendArg(serializationBuffers_[funcId.value], returnValue);
+		return {serializationBuffers_[funcId.value].data(), serializationBuffers_[funcId.value].size()};
 	}
 
 
@@ -398,7 +400,7 @@ private:
 
 
 	template<typename T>
-	auto deserializeReturn(const FunctionId &funcId, const std::span<const uint8_t>& bytes) -> std::expected<T, CallError> {
+	auto deserializeReturn(const FunctionId &funcId, std::span<const uint8_t> bytes) -> std::expected<T, CallError> {
 		if(funcId.value != bytes[0]) {
 			return std::unexpected(CallError::FunctionIdMismatch);
 		}
@@ -417,7 +419,7 @@ private:
 	}
 
 
-	std::tuple<FunctionId, std::span<const uint8_t>> deserializeRequest(const std::span<const uint8_t>& bytes) {
+	std::tuple<FunctionId, std::span<const uint8_t>> deserializeRequest(std::span<const uint8_t> bytes) {
 		if (bytes.empty()) {
 			throw std::invalid_argument("Not enough data to deserialize request");
 		}
@@ -427,8 +429,8 @@ private:
 	}
 
 
-	/// Buffer used for serialization of messages.
-	mutable std::vector<uint8_t> serializationBuffer_;
+	/// Buffers used for serialization of messages.
+	mutable std::unordered_map<uint8_t, std::vector<uint8_t>> serializationBuffers_;
 	/// Client used for communication. Can be a custom implementation of ClientInterface.
 	std::unique_ptr<clients::ClientInterface> client_;
 	structures::Settings settings_;

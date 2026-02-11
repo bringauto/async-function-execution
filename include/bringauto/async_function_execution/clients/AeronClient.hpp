@@ -118,7 +118,7 @@ public:
 	 * @return Returns a positive number on success, or a negative error code on failure.
 	 * (NOT_CONNECTED = -1, BACK_PRESSURED = -2, ADMIN_ACTION = -3, PUBLICATION_CLOSED = -4)
 	 */
-	int sendMessage(const uint32_t channelId, std::span<const uint8_t> &messageBytes) override {
+	int sendMessage(const uint32_t channelId, std::span<const uint8_t> messageBytes) override {
 		const aeron::concurrent::AtomicBuffer srcBuffer(const_cast<uint8_t *>(messageBytes.data()), messageBytes.size());
 		const auto it = aeronPublications_.find(channelId);
 		if (it == aeronPublications_.end()) {

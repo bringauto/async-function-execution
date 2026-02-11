@@ -19,7 +19,7 @@ public:
 		return 0;
 	}
 
-	int sendMessage(const uint32_t channelId, std::span<const uint8_t> &messageBytes) override {
+	int sendMessage(const uint32_t channelId, std::span<const uint8_t> messageBytes) override {
 		if (channelId > 421000) {
 			// Validate that this is a return message
 			if (messageBytes.size() != 3 + sizeof(int)) {
