@@ -1,7 +1,5 @@
 #pragma once
 
-#include <nlohmann/json.hpp>
-
 #include <chrono>
 #include <unordered_map>
 
@@ -18,6 +16,37 @@ struct FunctionConfig {
 };
 
 /**
+ * @brief Wrapper for multiple FunctionConfig instances, keyed by FunctionId.
+ * configs: Map of FunctionId to FunctionConfig.
+ */
+struct FunctionConfigs {
+	FunctionConfigs() = default;
+	explicit FunctionConfigs(std::unordered_map<uint8_t, FunctionConfig> configs) : configs(std::move(configs)) {};
+
+	FunctionConfig getConfig(const uint8_t functionId) const {
+		if (configs.find(functionId) != configs.end()) {
+			return configs.at(functionId);
+		}
+		return FunctionConfig{};
+	}
+
+	void setConfig(const uint8_t functionId, const FunctionConfig& config) {
+		configs[functionId] = config;
+	}
+
+	std::vector<uint8_t> getFunctionIds() const {
+		std::vector<uint8_t> functionIds;
+		for (const auto& [funcId, _] : configs) {
+			functionIds.push_back(funcId);
+		}
+		return functionIds;
+	}
+
+	private:
+		std::unordered_map<uint8_t, FunctionConfig> configs;
+};
+
+/**
  * @brief Configuration settings for the AsyncFunctionExecutor.
  * isProducer: If true, the instance acts as a producer (sending requests).
  * If false, it acts as a consumer (receiving requests and sending responses).
@@ -27,27 +56,11 @@ struct FunctionConfig {
 struct Settings {
 	const bool isProducer = true;
 	const std::chrono::nanoseconds defaultTimeout = std::chrono::nanoseconds(0);
-	std::unordered_map<uint8_t, FunctionConfig> functionConfigs;
+	FunctionConfigs functionConfigs;
 
-	Settings(bool isProducer, std::chrono::nanoseconds defaultTimeout, std::string_view funcConfs = "")
-			: isProducer(isProducer), defaultTimeout(defaultTimeout) {
-		if (funcConfs.empty()) {
-			return;
-		}
-
-		const auto configs = nlohmann::json::parse(funcConfs, nullptr, false);
-		for(const auto& [key, value] : configs.items()) {
-			try {
-				uint8_t funcId = static_cast<uint8_t>(std::stoi(key));
-				FunctionConfig funcConfig {
-					.timeout = std::chrono::nanoseconds(value["timeout"].get<int64_t>())
-				};
-				functionConfigs[funcId] = funcConfig;
-			} catch (const std::exception &e) {
-				std::cerr << "Error parsing function configuration for key " << key << ": " << e.what() << std::endl;
-			}
-		}
-	}
+	Settings(const bool isProducer, const std::chrono::nanoseconds defaultTimeout,
+			 const FunctionConfigs& functionConfigs = {})
+			: isProducer(isProducer), defaultTimeout(defaultTimeout), functionConfigs(functionConfigs) {}
 };
 
 }

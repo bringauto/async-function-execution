@@ -12,7 +12,7 @@ namespace baafe = bringauto::async_function_execution;
 struct SerializableString final {
 	std::string value {};
 	SerializableString() = default;
-	SerializableString(std::string str) : value(std::move(str)) {}
+	explicit SerializableString(std::string str) : value(std::move(str)) {}
 
 	std::span<const uint8_t> serialize() const {
 		return std::span {reinterpret_cast<const uint8_t *>(value.data()), value.size()};
@@ -52,41 +52,47 @@ baafe::FunctionDefinition FunctionNoArgs {
 	baafe::Arguments { }
 };
 
+baafe::FunctionDefinition FunctionWait {
+	baafe::FunctionId { 6 },
+	baafe::Return<void> { },
+	baafe::Arguments { }
+};
+
 baafe::AsyncFunctionExecutor executorProducer {
 	baafe::Config {
 		.isProducer = true,
-		.defaultTimeout = std::chrono::seconds(1)
+		.defaultTimeout = std::chrono::seconds(1),
+		.functionConfigurations = baafe::structures::FunctionConfigs { {
+			{ FunctionAdd.id.value,              { std::chrono::nanoseconds(1000000) } },
+			{ FunctionMultiply.id.value,         { std::chrono::nanoseconds(2000000) } },
+			{ FunctionReturnSame.id.value,       { std::chrono::nanoseconds(3000000) } },
+			{ FunctionReturnSameString.id.value, { std::chrono::nanoseconds(4000000) } },
+			{ FunctionNoArgs.id.value,           { std::chrono::nanoseconds(5000000) } },
+			{ FunctionWait.id.value,             { std::chrono::nanoseconds(6000000) } }
+		} }
 	},
-	baafe::FunctionList { std::tuple{
+	baafe::FunctionList {
 		FunctionAdd,
 		FunctionMultiply,
 		FunctionReturnSame,
 		FunctionReturnSameString,
-		FunctionNoArgs
-	} },
+		FunctionNoArgs,
+		FunctionWait
+	},
 	std::make_unique<MockClient>()
 };
 
 baafe::AsyncFunctionExecutor executorConsumer {
 	baafe::Config {
-		.isProducer = false,
-		.functionConfigurations = R"(
-			{
-				"1": { "timeout": 1000000 },
-				"2": { "timeout": 2000000 },
-				"3": { "timeout": 3000000 },
-				"4": { "timeout": 4000000 },
-				"5": { "timeout": 5000000 }
-			}
-		)"
+		.isProducer = false
 	},
-	baafe::FunctionList { std::tuple{
+	baafe::FunctionList {
 		FunctionAdd,
 		FunctionMultiply,
 		FunctionReturnSame,
 		FunctionReturnSameString,
 		FunctionNoArgs
-	} },
+	},
 	std::make_unique<MockClient>()
 };
 
@@ -94,8 +100,9 @@ baafe::AsyncFunctionExecutor executorConsumer {
 class AsyncFunctionExecutorTests : public ::testing::Test {
 protected:
 	static void SetUpTestSuite() {
-		executorProducer.connect();
-		executorConsumer.connect();
+		// Connect both executors with an arbitrary channel offset of 42
+		executorProducer.connect(42);
+		executorConsumer.connect(42);
 	}
 
 	void SetUp() override {}

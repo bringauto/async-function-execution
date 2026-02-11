@@ -1,8 +1,8 @@
 #pragma once
 
 #include <span>
-#include <cstdint>
 #include <vector>
+#include <chrono>
 
 
 
@@ -29,15 +29,16 @@ public:
 	 * @param messageBytes The bytes of the message to send.
 	 * @return Returns 0 on success, or a negative error code on failure.
 	 */
-	virtual int sendMessage(const uint32_t channelId, std::span<const uint8_t> &messageBytes) = 0;
+	virtual int sendMessage(uint32_t channelId, std::span<const uint8_t> messageBytes) = 0;
 
 	/**
 	 * @brief Waits for a message from the specified channel ID.
 	 * 
 	 * @param channelId The channel ID to wait for a message from.
+	 * @param timeout Maximum time to wait for a message before timing out.
 	 * @return Bytes of the last message received. Returns an empty span on timeout or error.
 	 */
-	virtual std::span<const uint8_t> waitForMessage(const uint32_t channelId) = 0;
+	virtual std::span<const uint8_t> waitForMessage(uint32_t channelId, std::chrono::nanoseconds timeout) = 0;
 
 	/**
 	 * @brief Waits for any message from all channels.

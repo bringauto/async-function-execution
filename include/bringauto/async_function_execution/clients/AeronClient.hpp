@@ -2,6 +2,7 @@
 
 #include <bringauto/async_function_execution/clients/ClientInterface.hpp>
 #include <bringauto/async_function_execution/Constants.hpp>
+#include <bringauto/async_function_execution/TimeoutIdleStrategy.hpp>
 
 #include <Aeron.h>
 #include <FragmentAssembler.h>
@@ -63,30 +64,46 @@ public:
 	 */
 	int connect(const std::vector<uint32_t>& subscriptionIds, const std::vector<uint32_t>& publicationIds) override {
 		aeron_ = aeron::Aeron::connect(aeronContext_);
-	
 		int64_t id;
-		for (const auto &pubId : publicationIds) {
-			id = aeron_->addPublication(aeronConnection_, pubId);
-			std::shared_ptr<aeron::Publication> publication = aeron_->findPublication(id);
-			while (!publication) {
-				std::this_thread::yield();
-				publication = aeron_->findPublication(id);
-			}
-			aeronPublications_[pubId] = publication;
-		}
 		
-		for (const auto &subId : subscriptionIds) {
-			id = aeron_->addSubscription(aeronConnection_, subId);
-			std::shared_ptr<aeron::Subscription> subscription = aeron_->findSubscription(id);
-			while (!subscription) {
-				std::this_thread::yield();
-				subscription = aeron_->findSubscription(id);
+		try {
+			for (const auto &pubId : publicationIds) {
+				id = aeron_->addPublication(aeronConnection_, pubId);
+				std::shared_ptr<aeron::Publication> publication = aeron_->findPublication(id);
+				const auto deadline = std::chrono::steady_clock::now() + STREAM_CONNECTION_TIMEOUT;
+				while (!publication) {
+					if (std::chrono::steady_clock::now() > deadline) {
+						std::cerr << "Aeron connection error: Timeout while waiting for publication" << std::endl;
+						return -1; // Error: Timeout
+					}
+					std::this_thread::yield();
+					publication = aeron_->findPublication(id);
+				}
+				aeronPublications_[pubId] = publication;
 			}
-			aeronSubscriptions_[subId] = subscription;
-			aeronPolling_[subId] = false;
+			
+			for (const auto &subId : subscriptionIds) {
+				id = aeron_->addSubscription(aeronConnection_, subId);
+				std::shared_ptr<aeron::Subscription> subscription = aeron_->findSubscription(id);
+				const auto deadline = std::chrono::steady_clock::now() + STREAM_CONNECTION_TIMEOUT;
+				while (!subscription) {
+					if (std::chrono::steady_clock::now() > deadline) {
+						std::cerr << "Aeron connection error: Timeout while waiting for subscription" << std::endl;
+						return -1; // Error: Timeout
+					}
+					std::this_thread::yield();
+					subscription = aeron_->findSubscription(id);
+				}
+				aeronSubscriptions_[subId] = subscription;
+				aeronPolling_[subId] = false;
+			}
+		} catch (const std::exception &e) {
+			std::cerr << "Aeron connection error: " << e.what() << std::endl;
+			return -1; // Error: Aeron connection failed
 		}
 
 		if (aeronPublications_.empty() || aeronSubscriptions_.empty()) {
+			std::cerr << "Aeron connection error: No publications or subscriptions available" << std::endl;
 			return -1; // Error: No publications or subscriptions available
 		}
 		return 0;
@@ -99,11 +116,16 @@ public:
 	 * @param channelId The channel ID to send the message to.
 	 * @param messageBytes The message bytes to send.
 	 * @return Returns a positive number on success, or a negative error code on failure.
-	 * 	  (NOT_CONNECTED = -1, BACK_PRESSURED = -2, ADMIN_ACTION = -3, PUBLICATION_CLOSED = -4)
+	 * (NOT_CONNECTED = -1, BACK_PRESSURED = -2, ADMIN_ACTION = -3, PUBLICATION_CLOSED = -4)
 	 */
-	int sendMessage(const uint32_t channelId, std::span<const uint8_t> &messageBytes) override {
-		aeron::concurrent::AtomicBuffer srcBuffer(const_cast<uint8_t *>(messageBytes.data()), messageBytes.size());
-		return aeronPublications_[channelId]->offer(srcBuffer, 0, messageBytes.size());
+	int sendMessage(const uint32_t channelId, std::span<const uint8_t> messageBytes) override {
+		const aeron::concurrent::AtomicBuffer srcBuffer(const_cast<uint8_t *>(messageBytes.data()), messageBytes.size());
+		const auto it = aeronPublications_.find(channelId);
+		if (it == aeronPublications_.end()) {
+			std::cerr << "Aeron send error: Channel ID not found" << std::endl;
+			return -1; // Error: Channel ID not found
+		}
+		return it->second->offer(srcBuffer, 0, messageBytes.size());
 	};
 
 
@@ -111,13 +133,19 @@ public:
 	 * @brief Retrieves the last received message from Aeron.
 	 * 
 	 * @param channelId The channel ID to wait for a message from.
+	 * @param timeout Maximum time to wait for a message before timing out.
 	 * @return Bytes of the last message received. Returns an empty span on timeout or error.
 	 */
-	std::span<const uint8_t> waitForMessage(const uint32_t channelId) override {
+	std::span<const uint8_t> waitForMessage(const uint32_t channelId, std::chrono::nanoseconds timeout = std::chrono::nanoseconds(0)) override {
+		const auto it = aeronSubscriptions_.find(channelId);
+		if (it == aeronSubscriptions_.end()) {
+			std::cerr << "Aeron wait error: Channel ID not found" << std::endl;
+			return {}; // Error: Channel ID not found
+		}
 		aeronPolling_[channelId] = true;
 		while (aeronPolling_[channelId]) {
-			const int fragmentsRead = aeronSubscriptions_[channelId]->poll(*aeronHandler_, 10);
-			if(aeronIdleStrategy_->idle(fragmentsRead) != 0) {
+			const int fragmentsRead = it->second->poll(*aeronHandler_, 10);
+			if(aeronIdleStrategy_->idle(fragmentsRead, timeout) != 0) {
 				aeronIdleStrategy_->reset();
 				return {}; // Error: Aeron message wait timed out
 			}

@@ -9,7 +9,8 @@ namespace baafe = bringauto::async_function_execution;
 struct SerializableString final {
 	std::string value {};
 	SerializableString() = default;
-	SerializableString(std::string str) : value(std::move(str)) {}
+
+	explicit SerializableString(std::string str) : value(std::move(str)) {}
 
 	std::span<const uint8_t> serialize() const {
 		return std::span {reinterpret_cast<const uint8_t *>(value.data()), value.size()};
@@ -30,9 +31,9 @@ baafe::AsyncFunctionExecutor executorProducer {
 		.isProducer = true,
 		.defaultTimeout = std::chrono::seconds(1)
 	},
-	baafe::FunctionList { std::tuple{
+	baafe::FunctionList {
 		Function
-	} }
+	}
 };
 
 int main() {
@@ -50,15 +51,18 @@ int main() {
 		return -1;
 	}
 
-	executorProducer.connect();
-	std::cout << "Producer connected." << std::endl;
+	if (executorProducer.connect() != 0) {
+		std::cerr << "Producer: Failed to connect to executor" << std::endl;
+		return 1;
+	}
 
+	std::cout << "Producer connected." << std::endl;
 	std::cout << "Turn on the consumer and press Enter to continue..." << std::endl;
 	std::cin.get();
 
 	// Producer calls Function
-	SerializableString ret = executorProducer.callFunc(Function, "Hello, World!");
-	
+	SerializableString ret = executorProducer.callFunc(Function, SerializableString{"Hello, World!"}).value();
+
 	// Short delay while a segfault is forced in the consumer
 	std::this_thread::sleep_for(std::chrono::seconds(1));
 	

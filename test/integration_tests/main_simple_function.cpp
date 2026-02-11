@@ -17,18 +17,18 @@ baafe::AsyncFunctionExecutor executorProducer {
 		.isProducer = true,
 		.defaultTimeout = std::chrono::seconds(1)
 	},
-	baafe::FunctionList { std::tuple{
+	baafe::FunctionList {
 		FunctionAdd
-	} }
+	}
 };
 
 baafe::AsyncFunctionExecutor executorConsumer {
 	baafe::Config {
 		.isProducer = false
 	},
-	baafe::FunctionList { std::tuple{
+	baafe::FunctionList {
 		FunctionAdd
-	} }
+	}
 };
 
 void consumerLoop() {
@@ -62,8 +62,14 @@ int main() {
 		return -1;
 	}
 
-	executorProducer.connect();
-	executorConsumer.connect();
+	if (executorProducer.connect() != 0) {
+		std::cerr << "Producer: Failed to connect to executor" << std::endl;
+		return 1;
+	}
+	if (executorConsumer.connect() != 0) {
+		std::cerr << "Consumer: Failed to connect to executor" << std::endl;
+		return 1;
+	}
 	std::cout << "Both producer and consumer connected." << std::endl;
 
 	// Start consumer loop in a separate thread
@@ -71,7 +77,7 @@ int main() {
 	std::this_thread::sleep_for(std::chrono::seconds(1)); // Give consumer a moment to start
 
 	// Producer calls FunctionAdd
-	int sum = executorProducer.callFunc(FunctionAdd, 10, 20, 30);
+	int sum = executorProducer.callFunc(FunctionAdd, 10, 20, 30).value();
 	std::cout << "Producer: FunctionAdd(10, 20, 30) returned: " << sum << std::endl;
 	if (sum != 60) {
 		std::cerr << "Unexpected sum result!" << std::endl;

@@ -1,18 +1,18 @@
 #include <bringauto/async_function_execution/AeronDriver.hpp>
 
-#include <signal.h>
+#include <csignal>
 
 
 
 static bringauto::async_function_execution::AeronDriver* globalDriverInstance = nullptr;
 
-void terminationHook(void *state) {
+static void terminationHook(void *state) {
 	if (globalDriverInstance != nullptr) {
 		globalDriverInstance->stop();
 	}
 }
 
-void signalHandler(int signal) {
+static void signalHandler(int signal) {
 	if (globalDriverInstance != nullptr) {
 		globalDriverInstance->stop();	
 	}
@@ -26,7 +26,7 @@ AeronDriver::AeronDriver() {
 	signal(SIGINT, signalHandler);
 	signal(SIGTERM, signalHandler);
 	aeron_driver_context_init(&driverContext_);
-	aeron_driver_context_set_driver_termination_hook(driverContext_, terminationHook, NULL);
+	aeron_driver_context_set_driver_termination_hook(driverContext_, terminationHook, nullptr);
 	driverContext_->agent_on_start_func_delegate = driverContext_->agent_on_start_func;
 	driverContext_->agent_on_start_state_delegate = driverContext_->agent_on_start_state;
 	aeron_driver_context_set_agent_on_start_function(driverContext_, aeron_set_thread_affinity_on_start, driverContext_);
@@ -34,7 +34,13 @@ AeronDriver::AeronDriver() {
 }
 
 
-void AeronDriver::run() {
+AeronDriver::~AeronDriver() {
+	aeron_driver_close(driver_);
+	aeron_driver_context_close(driverContext_);
+}
+
+
+void AeronDriver::run() const {
 	aeron_driver_start(driver_, true);
 	while (isRunning()) {
 		aeron_driver_main_idle_strategy(driver_, aeron_driver_main_do_work(driver_));
